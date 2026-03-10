@@ -359,6 +359,26 @@ impl UnifiedExecWaitStreak {
     }
 }
 
+struct LoopState {
+    interval: Duration,
+    interval_label: String,
+    prompt: String,
+    last_run_at: Option<Instant>,
+    next_run_at: Instant,
+    generation: u64,
+    handle: JoinHandle<()>,
+}
+
+enum LoopCommandArgs {
+    Enable {
+        interval: Duration,
+        interval_label: String,
+        prompt: String,
+    },
+    Off,
+    Status,
+}
+
 fn is_unified_exec_source(source: ExecCommandSource) -> bool {
     matches!(
         source,
@@ -461,6 +481,68 @@ pub(crate) fn get_limits_duration(windows_minutes: i64) -> String {
         "monthly".to_string()
     } else {
         "annual".to_string()
+    }
+}
+
+fn parse_loop_interval(raw: &str) -> Result<(Duration, String), String> {
+    let raw = raw.trim();
+    if raw.len() < 2 {
+        return Err("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string());
+    }
+
+    let (value, unit) = raw.split_at(raw.len() - 1);
+    let value: u64 = value
+        .parse()
+        .map_err(|_| "Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string())?;
+    if value == 0 {
+        return Err("Loop interval must be greater than zero.".to_string());
+    }
+
+    let seconds = match unit.to_ascii_lowercase().as_str() {
+        "s" => value,
+        "m" => value.saturating_mul(60),
+        "h" => value.saturating_mul(60 * 60),
+        "d" => value.saturating_mul(60 * 60 * 24),
+        "w" => value.saturating_mul(60 * 60 * 24 * 7),
+        _ => {
+            return Err("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string());
+        }
+    };
+
+    Ok((
+        Duration::from_secs(seconds),
+        format!("{value}{}", unit.to_ascii_lowercase()),
+    ))
+}
+
+fn parse_loop_command_args(raw: &str) -> Result<LoopCommandArgs, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string());
+    }
+
+    match trimmed {
+        "off" => Ok(LoopCommandArgs::Off),
+        "status" => Ok(LoopCommandArgs::Status),
+        _ => {
+            let Some((interval_text, prompt)) = trimmed.split_once(char::is_whitespace) else {
+                return Err(
+                    "Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string(),
+                );
+            };
+            let prompt = prompt.trim();
+            if prompt.is_empty() {
+                return Err(
+                    "Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string(),
+                );
+            }
+            let (interval, interval_label) = parse_loop_interval(interval_text)?;
+            Ok(LoopCommandArgs::Enable {
+                interval,
+                interval_label,
+                prompt: prompt.to_string(),
+            })
+        }
     }
 }
 
@@ -571,6 +653,8 @@ pub(crate) struct ChatWidget {
     rate_limit_warnings: RateLimitWarningState,
     rate_limit_switch_prompt: RateLimitSwitchPromptState,
     rate_limit_poller: Option<JoinHandle<()>>,
+    loop_state: Option<LoopState>,
+    next_loop_generation: u64,
     adaptive_chunking: AdaptiveChunkingPolicy,
     // Stream lifecycle controller
     stream_controller: Option<StreamController>,
@@ -1082,6 +1166,12 @@ impl ChatWidget {
         self.bottom_pane.set_status_line(status_line);
     }
 
+    fn loop_indicator_text(&self) -> Option<String> {
+        self.loop_state
+            .as_ref()
+            .map(|state| format!("Loop: every {}", state.interval_label))
+    }
+
     /// Recomputes footer status-line content from config and current runtime state.
     ///
     /// This method is the status-line orchestrator: it parses configured item identifiers,
@@ -1117,7 +1207,8 @@ impl ChatWidget {
             self.status_line_branch_pending = false;
             self.status_line_branch_lookup_complete = false;
         }
-        let enabled = !items.is_empty();
+        let loop_indicator = self.loop_indicator_text();
+        let enabled = !items.is_empty() || loop_indicator.is_some();
         self.bottom_pane.set_status_line_enabled(enabled);
         if !enabled {
             self.set_status_line(None);
@@ -1136,6 +1227,9 @@ impl ChatWidget {
             if let Some(value) = self.status_line_value_for_item(&item) {
                 parts.push(value);
             }
+        }
+        if let Some(loop_indicator) = loop_indicator {
+            parts.push(loop_indicator);
         }
 
         let line = if parts.is_empty() {
@@ -1362,6 +1456,72 @@ impl ChatWidget {
 
     fn set_skills(&mut self, skills: Option<Vec<SkillMetadata>>) {
         self.bottom_pane.set_skills(skills);
+    }
+
+    fn stop_loop_task(&mut self) {
+        if let Some(loop_state) = self.loop_state.take() {
+            loop_state.handle.abort();
+            self.refresh_status_line();
+        }
+    }
+
+    fn add_loop_status_output(&mut self) {
+        let Some(loop_state) = self.loop_state.as_ref() else {
+            self.add_info_message("Loop is off.".to_string(), None);
+            return;
+        };
+
+        let next_run_in = loop_state
+            .next_run_at
+            .saturating_duration_since(Instant::now());
+        let mut message = format!(
+            "Loop is active every {}: {}",
+            loop_state.interval_label, loop_state.prompt
+        );
+        if let Some(last_run_at) = loop_state.last_run_at {
+            message.push_str(&format!(
+                " (last run {} ago, next run in {})",
+                crate::status_indicator_widget::fmt_elapsed_compact(
+                    last_run_at.elapsed().as_secs()
+                ),
+                crate::status_indicator_widget::fmt_elapsed_compact(next_run_in.as_secs())
+            ));
+        } else {
+            message.push_str(&format!(
+                " (first run in {})",
+                crate::status_indicator_widget::fmt_elapsed_compact(next_run_in.as_secs())
+            ));
+        }
+        self.add_info_message(message, None);
+    }
+
+    fn enable_loop(&mut self, interval: Duration, interval_label: String, prompt: String) {
+        self.stop_loop_task();
+
+        self.next_loop_generation = self.next_loop_generation.wrapping_add(1);
+        let generation = self.next_loop_generation;
+        let app_event_tx = self.app_event_tx.clone();
+        let handle = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(interval).await;
+                app_event_tx.send(AppEvent::LoopTick { generation });
+            }
+        });
+
+        self.loop_state = Some(LoopState {
+            interval,
+            interval_label: interval_label.clone(),
+            prompt: prompt.clone(),
+            last_run_at: None,
+            next_run_at: Instant::now() + interval,
+            generation,
+            handle,
+        });
+        self.refresh_status_line();
+        self.add_info_message(
+            format!("Loop enabled: every {interval_label} -> {prompt}"),
+            None,
+        );
     }
 
     pub(crate) fn open_feedback_note(
@@ -3224,6 +3384,8 @@ impl ChatWidget {
             rate_limit_warnings: RateLimitWarningState::default(),
             rate_limit_switch_prompt: RateLimitSwitchPromptState::default(),
             rate_limit_poller: None,
+            loop_state: None,
+            next_loop_generation: 0,
             adaptive_chunking: AdaptiveChunkingPolicy::default(),
             stream_controller: None,
             plan_stream_controller: None,
@@ -3408,6 +3570,8 @@ impl ChatWidget {
             rate_limit_warnings: RateLimitWarningState::default(),
             rate_limit_switch_prompt: RateLimitSwitchPromptState::default(),
             rate_limit_poller: None,
+            loop_state: None,
+            next_loop_generation: 0,
             adaptive_chunking: AdaptiveChunkingPolicy::default(),
             stream_controller: None,
             plan_stream_controller: None,
@@ -3584,6 +3748,8 @@ impl ChatWidget {
             rate_limit_warnings: RateLimitWarningState::default(),
             rate_limit_switch_prompt: RateLimitSwitchPromptState::default(),
             rate_limit_poller: None,
+            loop_state: None,
+            next_loop_generation: 0,
             adaptive_chunking: AdaptiveChunkingPolicy::default(),
             stream_controller: None,
             plan_stream_controller: None,
@@ -4165,6 +4331,11 @@ impl ChatWidget {
             SlashCommand::Status => {
                 self.add_status_output();
             }
+            SlashCommand::Loop => {
+                self.add_error_message(
+                    "Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string(),
+                );
+            }
             SlashCommand::DebugConfig => {
                 self.add_debug_config_output();
             }
@@ -4286,6 +4457,49 @@ impl ChatWidget {
                         self.add_error_message("Usage: /fast [on|off|status]".to_string());
                     }
                 }
+            }
+            SlashCommand::Loop => {
+                let Some((prepared_args, _prepared_elements)) =
+                    self.bottom_pane.prepare_inline_args_submission(false)
+                else {
+                    return;
+                };
+                let parsed_args = match parse_loop_command_args(&prepared_args) {
+                    Ok(parsed_args) => parsed_args,
+                    Err(err) => {
+                        self.add_error_message(err);
+                        return;
+                    }
+                };
+
+                if self.bottom_pane.is_task_running()
+                    && !matches!(parsed_args, LoopCommandArgs::Status)
+                {
+                    self.add_error_message(
+                        "'/loop' can only change configuration while idle. Use '/loop status' during a task."
+                            .to_string(),
+                    );
+                    return;
+                }
+
+                match parsed_args {
+                    LoopCommandArgs::Enable {
+                        interval,
+                        interval_label,
+                        prompt,
+                    } => self.enable_loop(interval, interval_label, prompt),
+                    LoopCommandArgs::Off => {
+                        let was_enabled = self.loop_state.is_some();
+                        self.stop_loop_task();
+                        if was_enabled {
+                            self.add_info_message("Loop disabled.".to_string(), None);
+                        } else {
+                            self.add_info_message("Loop is already off.".to_string(), None);
+                        }
+                    }
+                    LoopCommandArgs::Status => self.add_loop_status_output(),
+                }
+                self.bottom_pane.drain_pending_submission_state();
             }
             SlashCommand::Rename if !trimmed.is_empty() => {
                 self.session_telemetry
@@ -5178,6 +5392,32 @@ impl ChatWidget {
 
     fn request_redraw(&mut self) {
         self.frame_requester.schedule_frame();
+    }
+
+    pub(crate) fn on_loop_tick(&mut self, generation: u64) {
+        let Some(loop_state) = self.loop_state.as_ref() else {
+            return;
+        };
+        if loop_state.generation != generation {
+            return;
+        }
+
+        let interval = loop_state.interval;
+        let prompt = loop_state.prompt.clone();
+        let next_run_at = Instant::now() + interval;
+        let should_submit = !self.bottom_pane.is_task_running() && !self.is_review_mode;
+
+        if let Some(loop_state) = self.loop_state.as_mut() {
+            loop_state.next_run_at = next_run_at;
+            if should_submit {
+                loop_state.last_run_at = Some(Instant::now());
+            }
+        }
+        self.refresh_status_line();
+        if !should_submit {
+            return;
+        }
+        self.submit_user_message(prompt.into());
     }
 
     fn bump_active_cell_revision(&mut self) {
@@ -8713,6 +8953,7 @@ impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.reset_realtime_conversation_state();
         self.stop_rate_limit_poller();
+        self.stop_loop_task();
     }
 }
 
