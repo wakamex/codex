@@ -237,6 +237,11 @@ impl ChatWidget {
                     );
                 }
             }
+            SlashCommand::Loop => {
+                self.add_error_message(
+                    "Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string(),
+                );
+            }
             SlashCommand::Collab => {
                 if !self.collaboration_modes_enabled() {
                     self.add_info_message(
@@ -618,6 +623,46 @@ impl ChatWidget {
                 }
                 _ => self.add_error_message(RAW_USAGE.to_string()),
             },
+            SlashCommand::Loop => {
+                let parsed_args = match parse_loop_command_args(&args) {
+                    Ok(parsed_args) => parsed_args,
+                    Err(err) => {
+                        self.add_error_message(err);
+                        return;
+                    }
+                };
+
+                if self.bottom_pane.is_task_running()
+                    && !matches!(parsed_args, LoopCommandArgs::Status)
+                {
+                    self.add_error_message(
+                        "'/loop' can only change configuration while idle. Use '/loop status' during a task."
+                            .to_string(),
+                    );
+                    return;
+                }
+
+                match parsed_args {
+                    LoopCommandArgs::Enable {
+                        interval,
+                        interval_label,
+                        prompt,
+                    } => self.enable_loop(interval, interval_label, prompt),
+                    LoopCommandArgs::Off => {
+                        let was_enabled = self.loop_state.is_some();
+                        self.stop_loop_task();
+                        if was_enabled {
+                            self.add_info_message("Loop disabled.".to_string(), /*hint*/ None);
+                        } else {
+                            self.add_info_message(
+                                "Loop is already off.".to_string(),
+                                /*hint*/ None,
+                            );
+                        }
+                    }
+                    LoopCommandArgs::Status => self.add_loop_status_output(),
+                }
+            }
             SlashCommand::Rename if !trimmed.is_empty() => {
                 if !self.ensure_thread_rename_allowed() {
                     return;
@@ -923,6 +968,7 @@ impl ChatWidget {
             | SlashCommand::Raw
             | SlashCommand::Vim
             | SlashCommand::Diff
+            | SlashCommand::Loop
             | SlashCommand::Rename
             | SlashCommand::TestApproval => QueueDrain::Continue,
             SlashCommand::Feedback

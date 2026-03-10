@@ -305,6 +305,9 @@ impl App {
             AppEvent::CommitTick => {
                 self.chat_widget.on_commit_tick();
             }
+            AppEvent::LoopTick { generation } => {
+                self.chat_widget.on_loop_tick(generation);
+            }
             AppEvent::Exit(mode) => {
                 return Ok(self.handle_exit_mode(app_server, mode).await);
             }

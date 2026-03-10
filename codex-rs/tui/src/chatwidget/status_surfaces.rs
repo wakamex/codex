@@ -158,7 +158,8 @@ impl ChatWidget {
     }
 
     fn refresh_status_line_from_selections(&mut self, selections: &StatusSurfaceSelections) {
-        let enabled = !selections.status_line_items.is_empty();
+        let loop_indicator = self.loop_indicator_text();
+        let enabled = !selections.status_line_items.is_empty() || loop_indicator.is_some();
         self.bottom_pane.set_status_line_enabled(enabled);
         if !enabled {
             self.set_status_line(/*status_line*/ None);
@@ -172,11 +173,20 @@ impl ChatWidget {
                 segments.push((*item, value));
             }
         }
+        let mut status_line =
+            status_line_from_segments(segments, self.config.tui_status_line_use_colors);
+        if let Some(loop_indicator) = loop_indicator {
+            if let Some(line) = status_line.as_mut() {
+                if !line.spans.is_empty() {
+                    line.spans.push(" | ".dim());
+                }
+                line.spans.push(loop_indicator.dim());
+            } else {
+                status_line = Some(Line::from(loop_indicator));
+            }
+        }
 
-        self.set_status_line(status_line_from_segments(
-            segments,
-            self.config.tui_status_line_use_colors,
-        ));
+        self.set_status_line(status_line);
         let hyperlink_url = selections
             .status_line_items
             .contains(&StatusLineItem::PullRequestNumber)

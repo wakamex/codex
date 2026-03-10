@@ -184,6 +184,7 @@ use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Wrap;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::JoinHandle;
 use tracing::debug;
 use tracing::warn;
 
@@ -444,6 +445,26 @@ impl UnifiedExecWaitStreak {
     }
 }
 
+struct LoopState {
+    interval: Duration,
+    interval_label: String,
+    prompt: String,
+    last_run_at: Option<Instant>,
+    next_run_at: Instant,
+    generation: u64,
+    handle: JoinHandle<()>,
+}
+
+enum LoopCommandArgs {
+    Enable {
+        interval: Duration,
+        interval_label: String,
+        prompt: String,
+    },
+    Off,
+    Status,
+}
+
 fn is_unified_exec_source(source: ExecCommandSource) -> bool {
     matches!(
         source,
@@ -561,6 +582,68 @@ pub(crate) fn get_limits_duration(windows_minutes: i64) -> String {
         "monthly".to_string()
     } else {
         "annual".to_string()
+    }
+}
+
+fn parse_loop_interval(raw: &str) -> Result<(Duration, String), String> {
+    let raw = raw.trim();
+    if raw.len() < 2 {
+        return Err("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string());
+    }
+
+    let (value, unit) = raw.split_at(raw.len() - 1);
+    let value: u64 = value
+        .parse()
+        .map_err(|_| "Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string())?;
+    if value == 0 {
+        return Err("Loop interval must be greater than zero.".to_string());
+    }
+
+    let seconds = match unit.to_ascii_lowercase().as_str() {
+        "s" => value,
+        "m" => value.saturating_mul(60),
+        "h" => value.saturating_mul(60 * 60),
+        "d" => value.saturating_mul(60 * 60 * 24),
+        "w" => value.saturating_mul(60 * 60 * 24 * 7),
+        _ => {
+            return Err("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string());
+        }
+    };
+
+    Ok((
+        Duration::from_secs(seconds),
+        format!("{value}{}", unit.to_ascii_lowercase()),
+    ))
+}
+
+fn parse_loop_command_args(raw: &str) -> Result<LoopCommandArgs, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string());
+    }
+
+    match trimmed {
+        "off" => Ok(LoopCommandArgs::Off),
+        "status" => Ok(LoopCommandArgs::Status),
+        _ => {
+            let Some((interval_text, prompt)) = trimmed.split_once(char::is_whitespace) else {
+                return Err(
+                    "Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string(),
+                );
+            };
+            let prompt = prompt.trim();
+            if prompt.is_empty() {
+                return Err(
+                    "Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string(),
+                );
+            }
+            let (interval, interval_label) = parse_loop_interval(interval_text)?;
+            Ok(LoopCommandArgs::Enable {
+                interval,
+                interval_label,
+                prompt: prompt.to_string(),
+            })
+        }
     }
 }
 
@@ -707,6 +790,8 @@ pub(crate) struct ChatWidget {
     turn_lifecycle: TurnLifecycleState,
     task_complete_pending: bool,
     unified_exec_processes: Vec<UnifiedExecProcessSummary>,
+    loop_state: Option<LoopState>,
+    next_loop_generation: u64,
     /// Tracks per-server MCP startup state while startup is in progress.
     ///
     /// The map is `Some(_)` from the first startup status update until the
@@ -1677,6 +1762,12 @@ impl ChatWidget {
         self.bottom_pane.set_active_agent_label(active_agent_label);
     }
 
+    fn loop_indicator_text(&self) -> Option<String> {
+        self.loop_state
+            .as_ref()
+            .map(|state| format!("Loop: every {}", state.interval_label))
+    }
+
     /// Recomputes footer status-line content from config and current runtime state.
     ///
     /// This method is the status-line orchestrator: it parses configured item identifiers,
@@ -2033,6 +2124,72 @@ impl ChatWidget {
 
     fn set_skills(&mut self, skills: Option<Vec<SkillMetadata>>) {
         self.bottom_pane.set_skills(skills);
+    }
+
+    fn stop_loop_task(&mut self) {
+        if let Some(loop_state) = self.loop_state.take() {
+            loop_state.handle.abort();
+            self.refresh_status_line();
+        }
+    }
+
+    fn add_loop_status_output(&mut self) {
+        let Some(loop_state) = self.loop_state.as_ref() else {
+            self.add_info_message("Loop is off.".to_string(), /*hint*/ None);
+            return;
+        };
+
+        let next_run_in = loop_state
+            .next_run_at
+            .saturating_duration_since(Instant::now());
+        let mut message = format!(
+            "Loop is active every {}: {}",
+            loop_state.interval_label, loop_state.prompt
+        );
+        if let Some(last_run_at) = loop_state.last_run_at {
+            message.push_str(&format!(
+                " (last run {} ago, next run in {})",
+                crate::status_indicator_widget::fmt_elapsed_compact(
+                    last_run_at.elapsed().as_secs()
+                ),
+                crate::status_indicator_widget::fmt_elapsed_compact(next_run_in.as_secs())
+            ));
+        } else {
+            message.push_str(&format!(
+                " (first run in {})",
+                crate::status_indicator_widget::fmt_elapsed_compact(next_run_in.as_secs())
+            ));
+        }
+        self.add_info_message(message, /*hint*/ None);
+    }
+
+    fn enable_loop(&mut self, interval: Duration, interval_label: String, prompt: String) {
+        self.stop_loop_task();
+
+        self.next_loop_generation = self.next_loop_generation.wrapping_add(1);
+        let generation = self.next_loop_generation;
+        let app_event_tx = self.app_event_tx.clone();
+        let handle = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(interval).await;
+                app_event_tx.send(AppEvent::LoopTick { generation });
+            }
+        });
+        let next_run_at = Instant::now() + interval;
+        self.loop_state = Some(LoopState {
+            interval,
+            interval_label: interval_label.clone(),
+            prompt: prompt.clone(),
+            last_run_at: None,
+            next_run_at,
+            generation,
+            handle,
+        });
+        self.refresh_status_line();
+        self.add_info_message(
+            format!("Loop enabled: every {interval_label} -> {prompt}"),
+            /*hint*/ None,
+        );
     }
 
     pub(crate) fn open_feedback_note(
@@ -4064,6 +4221,31 @@ impl ChatWidget {
         self.run_commit_tick();
     }
 
+    pub(crate) fn on_loop_tick(&mut self, generation: u64) {
+        let Some(loop_state) = self.loop_state.as_ref() else {
+            return;
+        };
+        if loop_state.generation != generation {
+            return;
+        }
+        let interval = loop_state.interval;
+        let prompt = loop_state.prompt.clone();
+        let now = Instant::now();
+        let should_submit = !self.bottom_pane.is_task_running() && !self.review.is_review_mode;
+
+        if let Some(loop_state) = self.loop_state.as_mut() {
+            loop_state.next_run_at = now + interval;
+            if should_submit {
+                loop_state.last_run_at = Some(now);
+            }
+        }
+        self.refresh_status_line();
+        if !should_submit {
+            return;
+        }
+        self.submit_user_message(prompt.into());
+    }
+
     /// Runs a regular periodic commit tick.
     fn run_commit_tick(&mut self) {
         self.run_commit_tick_with_scope(CommitTickScope::AnyMode);
@@ -4776,6 +4958,8 @@ impl ChatWidget {
             turn_lifecycle: TurnLifecycleState::new(prevent_idle_sleep),
             task_complete_pending: false,
             unified_exec_processes: Vec::new(),
+            loop_state: None,
+            next_loop_generation: 0,
             mcp_startup_status: None,
             mcp_startup_expected_servers: None,
             mcp_startup_ignore_updates_until_next_start: false,
@@ -10339,6 +10523,7 @@ impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.reset_realtime_conversation_state();
         self.stop_rate_limit_poller();
+        self.stop_loop_task();
     }
 }
 
