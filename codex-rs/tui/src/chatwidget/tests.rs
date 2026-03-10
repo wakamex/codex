@@ -1835,6 +1835,8 @@ async fn make_chatwidget_manual(
         rate_limit_warnings: RateLimitWarningState::default(),
         rate_limit_switch_prompt: RateLimitSwitchPromptState::default(),
         rate_limit_poller: None,
+        loop_state: None,
+        next_loop_generation: 0,
         adaptive_chunking: crate::streaming::chunking::AdaptiveChunkingPolicy::default(),
         stream_controller: None,
         plan_stream_controller: None,
@@ -7803,6 +7805,187 @@ async fn fast_status_indicator_is_hidden_when_fast_mode_is_off() {
     set_chatgpt_auth(&mut chat);
 
     assert!(!chat.should_show_fast_status(chat.current_service_tier()));
+}
+
+#[tokio::test]
+async fn loop_status_reports_disabled_when_off() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+
+    chat.bottom_pane
+        .set_composer_text("/loop status".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let cells = drain_insert_history(&mut rx);
+    let blob = lines_to_single_string(cells.last().expect("loop status history cell"));
+    assert!(blob.contains("Loop is off."), "got: {blob}");
+}
+
+#[tokio::test]
+async fn loop_slash_command_enables_loop_and_updates_indicator() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+
+    chat.bottom_pane.set_composer_text(
+        "/loop 5m check latest git".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let cells = drain_insert_history(&mut rx);
+    let blob = lines_to_single_string(cells.last().expect("loop enabled history cell"));
+    assert!(
+        blob.contains("Loop enabled: every 5m -> check latest git"),
+        "got: {blob}"
+    );
+    let status_line = status_line_text(&chat).expect("status line");
+    assert!(
+        status_line.contains("Loop: every 5m"),
+        "expected loop indicator in status line, got: {status_line}"
+    );
+}
+
+#[tokio::test]
+async fn loop_off_disables_loop_and_clears_indicator() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+
+    chat.bottom_pane.set_composer_text(
+        "/loop 5m check latest git".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let _ = drain_insert_history(&mut rx);
+
+    chat.bottom_pane
+        .set_composer_text("/loop off".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let cells = drain_insert_history(&mut rx);
+    let blob = lines_to_single_string(cells.last().expect("loop disabled history cell"));
+    assert!(blob.contains("Loop disabled."), "got: {blob}");
+    let status_line = status_line_text(&chat).expect("status line");
+    assert!(
+        !status_line.contains("Loop: every 5m"),
+        "expected loop indicator removed from status line, got: {status_line}"
+    );
+}
+
+#[tokio::test]
+async fn loop_tick_does_not_enqueue_while_task_running() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop 5m check latest git".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let _ = drain_insert_history(&mut rx);
+
+    let generation = chat.loop_state.as_ref().expect("loop state").generation;
+    chat.bottom_pane.set_task_running(true);
+    chat.on_loop_tick(generation);
+
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
+async fn loop_tick_submits_saved_prompt_when_idle() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop 5m check latest git".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let _ = drain_insert_history(&mut rx);
+
+    let generation = chat.loop_state.as_ref().expect("loop state").generation;
+    chat.on_loop_tick(generation);
+
+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+        unreachable!("next_submit_op only returns Op::UserTurn");
+    };
+    assert_eq!(
+        items,
+        vec![UserInput::Text {
+            text: "check latest git".to_string(),
+            text_elements: Vec::new(),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn loop_replaces_existing_loop_for_session() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane
+        .set_composer_text("/loop 5m first prompt".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let first_generation = chat
+        .loop_state
+        .as_ref()
+        .expect("first loop state")
+        .generation;
+    let _ = drain_insert_history(&mut rx);
+
+    chat.bottom_pane.set_composer_text(
+        "/loop 10m second prompt".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let second_generation = chat
+        .loop_state
+        .as_ref()
+        .expect("second loop state")
+        .generation;
+    let _ = drain_insert_history(&mut rx);
+
+    assert_ne!(first_generation, second_generation);
+    let status_line = status_line_text(&chat).expect("status line");
+    assert!(
+        status_line.contains("Loop: every 10m"),
+        "expected updated loop indicator in status line, got: {status_line}"
+    );
+
+    chat.on_loop_tick(first_generation);
+    assert_no_submit_op(&mut op_rx);
+
+    chat.on_loop_tick(second_generation);
+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+        unreachable!("next_submit_op only returns Op::UserTurn");
+    };
+    assert_eq!(
+        items,
+        vec![UserInput::Text {
+            text: "second prompt".to_string(),
+            text_elements: Vec::new(),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn loop_rejects_invalid_interval() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+
+    chat.bottom_pane.set_composer_text(
+        "/loop banana check latest git".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let cells = drain_insert_history(&mut rx);
+    let blob = lines_to_single_string(cells.last().expect("invalid interval history cell"));
+    assert!(
+        blob.contains("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d."),
+        "got: {blob}"
+    );
 }
 
 #[tokio::test]
