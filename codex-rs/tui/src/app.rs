@@ -2324,6 +2324,9 @@ impl App {
             AppEvent::CommitTick => {
                 self.chat_widget.on_commit_tick();
             }
+            AppEvent::LoopTick { generation } => {
+                self.chat_widget.on_loop_tick(generation);
+            }
             AppEvent::CodexEvent(event) => {
                 self.enqueue_primary_event(event).await?;
             }
