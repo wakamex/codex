@@ -311,6 +311,9 @@ impl App {
             AppEvent::CommitTick => {
                 self.chat_widget.on_commit_tick();
             }
+            AppEvent::LoopTick { generation } => {
+                self.chat_widget.on_loop_tick(generation);
+            }
             AppEvent::Exit(mode) => {
                 if mode == ExitMode::ShutdownFirst {
                     self.show_shutdown_feedback(tui)?;
