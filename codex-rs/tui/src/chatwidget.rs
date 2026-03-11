@@ -4561,10 +4561,10 @@ impl ChatWidget {
                 };
 
                 if self.bottom_pane.is_task_running()
-                    && !matches!(parsed_args, LoopCommandArgs::Status)
+                    && matches!(parsed_args, LoopCommandArgs::Enable { .. })
                 {
                     self.add_error_message(
-                        "'/loop' can only change configuration while idle. Use '/loop status' during a task."
+                        "'/loop' can only enable while idle. Use '/loop status' or '/loop off' during a task."
                             .to_string(),
                     );
                     return;

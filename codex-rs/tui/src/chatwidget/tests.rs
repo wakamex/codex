@@ -8156,10 +8156,35 @@ async fn loop_enable_is_blocked_while_task_running() {
     let blob = lines_to_single_string(cells.last().expect("busy loop error history cell"));
     assert!(
         blob.contains(
-            "'/loop' can only change configuration while idle. Use '/loop status' during a task."
+            "'/loop' can only enable while idle. Use '/loop status' or '/loop off' during a task."
         ),
         "got: {blob}"
     );
+}
+
+#[tokio::test]
+async fn loop_off_is_allowed_while_task_running() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop continuous keep going".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let _ = drain_insert_history(&mut rx);
+    let _ = next_submit_op(&mut op_rx);
+
+    chat.bottom_pane.set_task_running(true);
+    chat.bottom_pane
+        .set_composer_text("/loop off".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let cells = drain_insert_history(&mut rx);
+    let blob = lines_to_single_string(cells.last().expect("loop disabled history cell"));
+    assert!(blob.contains("Loop disabled."), "got: {blob}");
+    assert!(chat.loop_state.is_none(), "loop should be disabled");
 }
 
 #[tokio::test]
