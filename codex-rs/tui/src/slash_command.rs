@@ -92,7 +92,7 @@ impl SlashCommand {
             SlashCommand::MemoryUpdate => "DO NOT USE",
             SlashCommand::Model => "choose what model and reasoning effort to use",
             SlashCommand::Fast => "toggle Fast mode to enable fastest inference at 2X plan usage",
-            SlashCommand::Loop => "run a saved prompt on a schedule",
+            SlashCommand::Loop => "run a saved prompt on a schedule or every turn",
             SlashCommand::Personality => "choose a communication style for Codex",
             SlashCommand::Realtime => "toggle realtime voice mode (experimental)",
             SlashCommand::Settings => "configure realtime microphone/speaker",

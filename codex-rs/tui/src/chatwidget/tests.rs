@@ -8036,6 +8036,45 @@ async fn loop_slash_command_enables_loop_and_updates_indicator() {
 }
 
 #[tokio::test]
+async fn loop_continuous_enables_and_updates_indicator() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop continuous keep going".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let cells = drain_insert_history(&mut rx);
+    let blob = cells
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .find(|blob| blob.contains("Loop enabled: continuous -> keep going"))
+        .expect("loop enabled history cell");
+    assert!(
+        blob.contains("Loop enabled: continuous -> keep going"),
+        "got: {blob}"
+    );
+    let status_line = status_line_text(&chat).expect("status line");
+    assert!(
+        status_line.contains("Loop: continuous"),
+        "expected loop indicator in status line, got: {status_line}"
+    );
+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+        unreachable!("next_submit_op only returns Op::UserTurn");
+    };
+    assert_eq!(
+        items,
+        vec![UserInput::Text {
+            text: "keep going".to_string(),
+            text_elements: Vec::new(),
+        }]
+    );
+}
+
+#[tokio::test]
 async fn loop_off_disables_loop_and_clears_indicator() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
 
@@ -8082,6 +8121,26 @@ async fn loop_tick_does_not_enqueue_while_task_running() {
 }
 
 #[tokio::test]
+async fn loop_tick_ignores_continuous_mode() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop continuous keep going".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let _ = drain_insert_history(&mut rx);
+    let _ = next_submit_op(&mut op_rx);
+
+    let generation = chat.loop_state.as_ref().expect("loop state").generation;
+    chat.on_loop_tick(generation);
+
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
 async fn loop_enable_is_blocked_while_task_running() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
     chat.bottom_pane.set_task_running(true);
@@ -8118,6 +8177,32 @@ async fn loop_status_is_allowed_while_task_running() {
 }
 
 #[tokio::test]
+async fn loop_status_reports_continuous_mode() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop continuous keep going".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let _ = drain_insert_history(&mut rx);
+    let _ = next_submit_op(&mut op_rx);
+
+    chat.bottom_pane
+        .set_composer_text("/loop status".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let cells = drain_insert_history(&mut rx);
+    let blob = lines_to_single_string(cells.last().expect("loop status history cell"));
+    assert!(
+        blob.contains("Loop is active continuously: keep going"),
+        "got: {blob}"
+    );
+}
+
+#[tokio::test]
 async fn loop_tick_submits_saved_prompt_when_idle() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
     chat.thread_id = Some(ThreadId::new());
@@ -8140,6 +8225,35 @@ async fn loop_tick_submits_saved_prompt_when_idle() {
         items,
         vec![UserInput::Text {
             text: "check latest git".to_string(),
+            text_elements: Vec::new(),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn continuous_loop_submits_saved_prompt_on_turn_complete() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop continuous keep going".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let _ = drain_insert_history(&mut rx);
+    let _ = next_submit_op(&mut op_rx);
+
+    chat.on_task_started();
+    chat.on_task_complete(None, false);
+
+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+        unreachable!("next_submit_op only returns Op::UserTurn");
+    };
+    assert_eq!(
+        items,
+        vec![UserInput::Text {
+            text: "keep going".to_string(),
             text_elements: Vec::new(),
         }]
     );
@@ -8197,6 +8311,25 @@ async fn loop_replaces_existing_loop_for_session() {
 }
 
 #[tokio::test]
+async fn continuous_loop_does_not_submit_on_replayed_turn_complete() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop continuous keep going".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let _ = drain_insert_history(&mut rx);
+    let _ = next_submit_op(&mut op_rx);
+
+    chat.on_task_complete(None, true);
+
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
 async fn loop_rejects_invalid_interval() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
 
@@ -8212,6 +8345,40 @@ async fn loop_rejects_invalid_interval() {
     assert!(
         blob.contains("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d."),
         "got: {blob}"
+    );
+}
+
+#[tokio::test]
+async fn loop_accepts_continuous_keyword() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.bottom_pane.set_composer_text(
+        "/loop continuous keep going".to_string(),
+        Vec::new(),
+        Vec::new(),
+    );
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let cells = drain_insert_history(&mut rx);
+    let blob = cells
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .find(|blob| blob.contains("Loop enabled: continuous -> keep going"))
+        .expect("continuous loop history cell");
+    assert!(
+        blob.contains("Loop enabled: continuous -> keep going"),
+        "got: {blob}"
+    );
+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+        unreachable!("next_submit_op only returns Op::UserTurn");
+    };
+    assert_eq!(
+        items,
+        vec![UserInput::Text {
+            text: "keep going".to_string(),
+            text_elements: Vec::new(),
+        }]
     );
 }
 
