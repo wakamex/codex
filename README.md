@@ -16,6 +16,7 @@ This fork adds a minimal built-in `/loop` command to the Codex TUI.
 
 ```text
 /loop 5m check the repo for new changes and act if needed
+/loop continuous keep checking until I stop it
 /loop status
 /loop off
 ```
@@ -25,7 +26,8 @@ Current v1 limits:
 - session-local only
 - in-memory only
 - only one active loop per session
-- loop ticks only submit when the agent is idle
+- interval loops only submit when the agent is idle
+- `continuous` loops submit immediately, then again at each live turn boundary
 
 Build and install this fork locally:
 
