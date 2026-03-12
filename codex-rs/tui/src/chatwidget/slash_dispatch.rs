@@ -239,7 +239,7 @@ impl ChatWidget {
             }
             SlashCommand::Loop => {
                 self.add_error_message(
-                    "Usage: /loop <interval> <prompt> | /loop off | /loop status".to_string(),
+                    "Usage: /loop <interval> <prompt> | /loop continuous <prompt> | /loop off | /loop status".to_string(),
                 );
             }
             SlashCommand::Collab => {
@@ -633,21 +633,17 @@ impl ChatWidget {
                 };
 
                 if self.bottom_pane.is_task_running()
-                    && !matches!(parsed_args, LoopCommandArgs::Status)
+                    && matches!(parsed_args, LoopCommandArgs::Enable { .. })
                 {
                     self.add_error_message(
-                        "'/loop' can only change configuration while idle. Use '/loop status' during a task."
+                        "'/loop' can only enable while idle. Use '/loop status' or '/loop off' during a task."
                             .to_string(),
                     );
                     return;
                 }
 
                 match parsed_args {
-                    LoopCommandArgs::Enable {
-                        interval,
-                        interval_label,
-                        prompt,
-                    } => self.enable_loop(interval, interval_label, prompt),
+                    LoopCommandArgs::Enable { mode, prompt } => self.enable_loop(mode, prompt),
                     LoopCommandArgs::Off => {
                         let was_enabled = self.loop_state.is_some();
                         self.stop_loop_task();
