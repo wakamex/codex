@@ -201,7 +201,8 @@ impl ChatWidget {
             self.transcript.saw_plan_item_this_turn = false;
         }
         // If there is a queued user message, send exactly one now to begin the next turn.
-        let follow_up_started = self.maybe_send_next_queued_input();
+        let follow_up_started = self.maybe_send_next_queued_input()
+            || (!from_replay && self.maybe_submit_continuous_loop());
         let active_goal_continuing = self
             .current_goal_status
             .as_ref()
