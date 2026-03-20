@@ -445,21 +445,51 @@ async fn loop_tick_ignores_continuous_mode() {
 }
 
 #[tokio::test]
-async fn loop_enable_is_blocked_while_task_running() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+async fn loop_interval_enable_is_allowed_while_task_running() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     handle_turn_started(&mut chat, "turn-1");
     submit_composer_text(&mut chat, "/loop 5m check latest git");
 
-    assert!(chat.loop_state.is_none());
     let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 100);
     assert!(
-        rendered.contains(
-            "'/loop' can only enable while idle. Use '/loop status' or '/loop off' during a task."
-        ),
+        rendered.contains("Loop enabled: every 5m -> check latest git"),
         "got: {rendered}"
     );
+    assert!(chat.loop_state.is_some(), "loop should be enabled");
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
+async fn loop_continuous_enable_is_deferred_while_task_running() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    handle_turn_started(&mut chat, "turn-1");
+    submit_composer_text(&mut chat, "/loop continuous keep going");
+
+    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 100);
+    assert!(
+        rendered
+            .contains("Loop enabled: continuous -> keep going (will run after the current task)"),
+        "got: {rendered}"
+    );
+    assert!(chat.loop_state.is_some(), "loop should be enabled");
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+
+    complete_turn_with_message(&mut chat, "turn-1", Some("done"));
+
+    match next_submit_op(&mut op_rx) {
+        Op::UserTurn { items, .. } => assert_eq!(
+            items,
+            vec![UserInput::Text {
+                text: "keep going".to_string(),
+                text_elements: Vec::new(),
+            }]
+        ),
+        other => panic!("expected deferred continuous loop prompt, got {other:?}"),
+    }
 }
 
 #[tokio::test]
