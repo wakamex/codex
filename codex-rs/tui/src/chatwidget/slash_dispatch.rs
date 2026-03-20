@@ -632,16 +632,6 @@ impl ChatWidget {
                     }
                 };
 
-                if self.bottom_pane.is_task_running()
-                    && matches!(parsed_args, LoopCommandArgs::Enable { .. })
-                {
-                    self.add_error_message(
-                        "'/loop' can only enable while idle. Use '/loop status' or '/loop off' during a task."
-                            .to_string(),
-                    );
-                    return;
-                }
-
                 match parsed_args {
                     LoopCommandArgs::Enable { mode, prompt } => self.enable_loop(mode, prompt),
                     LoopCommandArgs::Off => {

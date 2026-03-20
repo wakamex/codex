@@ -405,8 +405,8 @@ async fn loop_tick_ignores_continuous_mode() {
 }
 
 #[tokio::test]
-async fn loop_enable_is_blocked_while_task_running() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+async fn loop_interval_enable_is_allowed_while_task_running() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.bottom_pane.set_task_running(/*running*/ true);
 
     submit_composer_text(&mut chat, "/loop 5m check latest git");
@@ -418,10 +418,48 @@ async fn loop_enable_is_blocked_while_task_running() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        rendered.contains(
-            "'/loop' can only enable while idle. Use '/loop status' or '/loop off' during a task."
-        ),
+        rendered.contains("Loop enabled: every 5m -> check latest git"),
         "got: {rendered}"
+    );
+    assert!(chat.loop_state.is_some(), "loop should be enabled");
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
+async fn loop_continuous_enable_is_deferred_while_task_running() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.bottom_pane.set_task_running(/*running*/ true);
+
+    submit_composer_text(&mut chat, "/loop continuous keep going");
+
+    let cells = drain_insert_history(&mut rx);
+    let rendered = cells
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered
+            .contains("Loop enabled: continuous -> keep going (will run after the current task)"),
+        "got: {rendered}"
+    );
+    assert!(chat.loop_state.is_some(), "loop should be enabled");
+    assert_no_submit_op(&mut op_rx);
+
+    chat.on_task_complete(
+        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
+    );
+
+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+        unreachable!("next_submit_op only returns Op::UserTurn");
+    };
+    assert_eq!(
+        items,
+        vec![UserInput::Text {
+            text: "keep going".to_string(),
+            text_elements: Vec::new(),
+        }]
     );
 }
 

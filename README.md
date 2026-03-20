@@ -27,7 +27,7 @@ Current v1 limits:
 - in-memory only
 - only one active loop per session
 - interval loops only submit when the agent is idle
-- `continuous` loops submit immediately, then again at each live turn boundary
+- `continuous` loops submit immediately when idle, or after the current task when enabled mid-turn, then again at each live turn boundary
 
 Build and install this fork locally:
 

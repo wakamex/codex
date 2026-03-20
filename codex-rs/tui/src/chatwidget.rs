@@ -2206,7 +2206,10 @@ impl ChatWidget {
 
         self.next_loop_generation = self.next_loop_generation.wrapping_add(1);
         let generation = self.next_loop_generation;
-        let kickoff_prompt = matches!(mode, LoopMode::Continuous).then(|| prompt.clone());
+        let continuous_kickoff_deferred =
+            matches!(mode, LoopMode::Continuous) && self.bottom_pane.is_task_running();
+        let kickoff_prompt = (matches!(mode, LoopMode::Continuous) && !continuous_kickoff_deferred)
+            .then(|| prompt.clone());
         let (handle, next_run_at, status_message) = match &mode {
             LoopMode::Interval {
                 interval,
@@ -2226,7 +2229,16 @@ impl ChatWidget {
                     format!("Loop enabled: every {interval_label} -> {prompt}"),
                 )
             }
-            LoopMode::Continuous => (None, None, format!("Loop enabled: continuous -> {prompt}")),
+            LoopMode::Continuous => {
+                let status_message = if continuous_kickoff_deferred {
+                    format!(
+                        "Loop enabled: continuous -> {prompt} (will run after the current task)"
+                    )
+                } else {
+                    format!("Loop enabled: continuous -> {prompt}")
+                };
+                (None, None, status_message)
+            }
         };
 
         self.loop_state = Some(LoopState {
