@@ -37,11 +37,14 @@ pub fn create_view_image_tool(options: ViewImageToolOptions) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: VIEW_IMAGE_TOOL_NAME.to_string(),
-        description: "View a local image from the filesystem (only use if given a full filepath by the user, and the image isn't already attached to the thread context within <image ...> tags)."
-            .to_string(),
+        description: "View a local image from the filesystem.".to_string(),
         strict: false,
         defer_loading: None,
-        parameters: JsonSchema::object(properties, Some(vec!["path".to_string()]), Some(false.into())),
+        parameters: JsonSchema::object(
+            properties,
+            Some(vec!["path".to_string()]),
+            Some(false.into()),
+        ),
         output_schema: Some(view_image_output_schema()),
     })
 }
