@@ -7,6 +7,106 @@ rust_min_stack := "8388608" # 8 MiB
 help:
     just -l
 
+# Rebase the current branch onto upstream/main.
+[no-cd]
+rebase-upstream:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+
+    git_dir="$(git rev-parse --git-dir)"
+    if [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+        echo "A rebase is already in progress."
+        echo "Run 'just rebase-status' to inspect it."
+        exit 1
+    fi
+
+    if ! git remote get-url upstream >/dev/null 2>&1; then
+        echo "Remote 'upstream' is not configured."
+        exit 1
+    fi
+
+    branch="$(git branch --show-current)"
+    if [ -z "$branch" ]; then
+        echo "Detached HEAD; check out a branch before rebasing onto upstream/main."
+        exit 1
+    fi
+
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "Worktree is not clean. Commit, stash, or discard changes before rebasing."
+        git status --short
+        exit 1
+    fi
+
+    echo "Fetching origin and upstream..."
+    git fetch origin upstream
+
+    backup_branch="backup/${branch}-before-upstream-rebase-$(date +%Y%m%d-%H%M%S)"
+    git branch "$backup_branch" "$branch"
+    echo "Created backup branch: $backup_branch"
+    echo "Rebasing $branch onto upstream/main..."
+
+    if git rebase upstream/main; then
+        echo "Rebase complete."
+        echo "Next: git push origin $branch --force-with-lease"
+    else
+        echo
+        echo "Rebase stopped due to conflicts."
+        echo "Unresolved files:"
+        git diff --name-only --diff-filter=U || true
+        echo
+        echo "Resolve files, then run: just rebase-continue"
+        echo "To inspect: just rebase-status"
+        echo "To abort: just rebase-abort"
+        exit 1
+    fi
+
+[no-cd]
+rebase-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+
+    git_dir="$(git rev-parse --git-dir)"
+    branch="$(git branch --show-current)"
+    branch="${branch:-DETACHED}"
+
+    if [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+        echo "Rebase in progress on branch $branch."
+        unresolved="$(git diff --name-only --diff-filter=U || true)"
+        if [ -n "$unresolved" ]; then
+            echo "Unresolved files:"
+            printf '%s\n' "$unresolved"
+        else
+            echo "No unresolved files currently reported."
+        fi
+        echo
+        git status --short --branch
+        echo
+        echo "Next: resolve files and run 'just rebase-continue', or run 'just rebase-abort'."
+    else
+        echo "No rebase in progress on branch $branch."
+        git status --short --branch
+    fi
+
+[no-cd]
+rebase-continue:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+    git rebase --continue
+
+[no-cd]
+rebase-abort:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+    git rebase --abort
+
 # `codex`
 alias c := codex
 codex *args:
