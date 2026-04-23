@@ -40,7 +40,7 @@ rebase-upstream:
     fi
 
     echo "Fetching origin and upstream..."
-    git fetch origin upstream
+    git fetch --multiple origin upstream
 
     backup_branch="backup/${branch}-before-upstream-rebase-$(date +%Y%m%d-%H%M%S)"
     git branch "$backup_branch" "$branch"
