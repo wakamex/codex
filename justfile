@@ -107,6 +107,12 @@ rebase-abort:
     cd "$repo_root"
     git rebase --abort
 
+# Patch codex-rs/Cargo.toml so local builds report the latest upstream release plus
+# the upstream commit included in the source, e.g. 0.131.0-alpha.6+upstream.abcdef1234.
+[no-cd]
+set-local-version *args:
+    {{ justfile_directory() }}/scripts/set-local-version.py "$@"
+
 # `codex`
 alias c := codex
 codex *args:
