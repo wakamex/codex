@@ -103,6 +103,57 @@ def git(args: list[str], cwd: Path) -> str:
     return run(["git", *args], cwd).stdout.strip()
 
 
+def remote_release_versions(repo: Path, remote: str) -> list[str]:
+    output = git(["ls-remote", "--tags", remote, "refs/tags/rust-v*"], repo)
+    versions: list[str] = []
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        ref = parts[1]
+        if ref.endswith("^{}"):
+            continue
+        tag = ref.removeprefix("refs/tags/")
+        match = TAG_RE.match(tag)
+        if match is None:
+            continue
+        versions.append(tag.removeprefix("rust-v"))
+    return versions
+
+
+def latest_version(versions: list[str], context: str) -> str:
+    if not versions:
+        raise RuntimeError(f"No valid rust-v* release tags found {context}.")
+    return max(versions, key=functools.cmp_to_key(compare_versions))
+
+
+def fetch_version_refs(repo: Path, remote: str, branch: str) -> str:
+    """Fetch only the refs needed to compute the local version.
+
+    Avoid `git fetch --tags`: this repository also publishes non-Codex release
+    tags, and local tag conflicts in those namespaces should not block this
+    helper.
+    """
+
+    remote_branch_ref = f"refs/heads/{branch}:refs/remotes/{remote}/{branch}"
+    run(["git", "fetch", "--no-tags", remote, remote_branch_ref], repo, stdout=None)
+
+    release_version = latest_version(remote_release_versions(repo, remote), f"on {remote}")
+    release_tag_ref = f"refs/tags/rust-v{release_version}:refs/tags/rust-v{release_version}"
+    run(
+        [
+            "git",
+            "fetch",
+            "--no-tags",
+            remote,
+            release_tag_ref,
+        ],
+        repo,
+        stdout=None,
+    )
+    return release_version
+
+
 def repo_root() -> Path:
     return Path(git(["rev-parse", "--show-toplevel"], Path.cwd()))
 
@@ -164,10 +215,7 @@ def parsed_release_tags(repo: Path) -> list[str]:
 
 
 def latest_release_version(repo: Path) -> str:
-    versions = parsed_release_tags(repo)
-    if not versions:
-        raise RuntimeError("No valid rust-v* release tags found.")
-    return max(versions, key=functools.cmp_to_key(compare_versions))
+    return latest_version(parsed_release_tags(repo), "locally")
 
 
 def replace_workspace_version(cargo_toml: Path, new_version: str) -> str:
@@ -226,8 +274,10 @@ def main() -> int:
 
     repo = repo_root()
     if not args.no_fetch:
-        print(f"Fetching {args.remote} refs and tags...")
-        run(["git", "fetch", args.remote, "--tags"], repo, stdout=None)
+        print(f"Fetching {args.remote}/{args.branch} and latest rust-v* release tag...")
+        release_version = fetch_version_refs(repo, args.remote, args.branch)
+    else:
+        release_version = latest_release_version(repo)
 
     upstream_ref = f"refs/remotes/{args.remote}/{args.branch}"
     try:
@@ -235,7 +285,6 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"Could not resolve {args.remote}/{args.branch}.") from exc
 
-    release_version = latest_release_version(repo)
     source_ref = git(["rev-parse", "--verify", "--quiet", args.source_ref], repo)
     upstream_base = git(["merge-base", source_ref, upstream_ref], repo)
     upstream_base_short = git(["rev-parse", f"--short={args.sha_len}", upstream_base], repo)
