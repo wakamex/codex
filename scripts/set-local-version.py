@@ -229,11 +229,13 @@ def replace_workspace_version(cargo_toml: Path, new_version: str) -> str:
         if in_workspace_package and stripped.startswith("["):
             break
         if in_workspace_package:
-            match = re.match(r"^(\s*version\s*=\s*\")([^\"]+)(\".*)$", line)
+            line_body = line.rstrip("\r\n")
+            line_ending = line[len(line_body) :]
+            match = re.match(r"^(\s*version\s*=\s*\")([^\"]+)(\".*)$", line_body)
             if match is None:
                 continue
             old_version = match.group(2)
-            lines[index] = f"{match.group(1)}{new_version}{match.group(3)}"
+            lines[index] = f"{match.group(1)}{new_version}{match.group(3)}{line_ending}"
             cargo_toml.write_text("".join(lines), encoding="utf-8")
             return old_version
 
