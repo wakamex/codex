@@ -117,6 +117,11 @@ rebase-abort:
 set-local-version *args:
     {{ justfile_directory() }}/scripts/set-local-version.py "$@"
 
+# Temporarily stamp a local version, build codex-cli, then restore version files.
+[no-cd]
+build-local-version *args:
+    {{ justfile_directory() }}/scripts/build-local-version.py "$@"
+
 # `codex`
 alias c := codex
 codex *args:
