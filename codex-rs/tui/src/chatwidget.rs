@@ -2243,7 +2243,7 @@ impl ChatWidget {
                 .input_queue
                 .pending_steers
                 .iter()
-                .any(|message| message.text == loop_state.prompt)
+                .any(|message| message.user_message.text == loop_state.prompt)
             {
                 return false;
             }

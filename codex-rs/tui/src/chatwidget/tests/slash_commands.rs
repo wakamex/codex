@@ -65,6 +65,14 @@ fn queue_composer_text_with_tab(chat: &mut ChatWidget, text: &str) {
     chat.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
 }
 
+fn drain_rendered_history(rx: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>) -> String {
+    drain_insert_history(rx)
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn queue_goal_with_large_paste(chat: &mut ChatWidget, paste: String) {
     chat.bottom_pane
         .set_composer_text("/goal ".to_string(), Vec::new(), Vec::new());
@@ -339,23 +347,23 @@ async fn queued_bang_shell_waits_for_user_shell_completion_before_next_input() {
 
 #[tokio::test]
 async fn loop_status_reports_disabled_when_off() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     submit_composer_text(&mut chat, "/loop status");
 
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 80);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(rendered.contains("Loop is off."), "got: {rendered}");
 }
 
 #[tokio::test]
 async fn loop_slash_command_enables_loop_and_updates_indicator() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     submit_composer_text(&mut chat, "/loop 5m check latest git");
 
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 80);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(
         rendered.contains("Loop enabled: every 5m -> check latest git"),
         "got: {rendered}"
@@ -369,12 +377,12 @@ async fn loop_slash_command_enables_loop_and_updates_indicator() {
 
 #[tokio::test]
 async fn loop_continuous_enables_and_updates_indicator() {
-    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     submit_composer_text(&mut chat, "/loop continuous keep going");
 
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 80);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(
         rendered.contains("Loop enabled: continuous -> keep going"),
         "got: {rendered}"
@@ -398,7 +406,7 @@ async fn loop_continuous_enables_and_updates_indicator() {
 
 #[tokio::test]
 async fn loop_off_disables_loop_and_clears_indicator() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     submit_composer_text(&mut chat, "/loop 5m check latest git");
@@ -407,7 +415,7 @@ async fn loop_off_disables_loop_and_clears_indicator() {
     submit_composer_text(&mut chat, "/loop off");
 
     assert!(chat.loop_state.is_none());
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 80);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(rendered.contains("Loop disabled."), "got: {rendered}");
     let status_line = chat.status_line_text().unwrap_or_default();
     assert!(
@@ -446,13 +454,13 @@ async fn loop_tick_ignores_continuous_mode() {
 
 #[tokio::test]
 async fn loop_interval_enable_is_allowed_while_task_running() {
-    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     handle_turn_started(&mut chat, "turn-1");
     submit_composer_text(&mut chat, "/loop 5m check latest git");
 
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 100);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(
         rendered.contains("Loop enabled: every 5m -> check latest git"),
         "got: {rendered}"
@@ -463,13 +471,13 @@ async fn loop_interval_enable_is_allowed_while_task_running() {
 
 #[tokio::test]
 async fn loop_continuous_enable_is_deferred_while_task_running() {
-    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     handle_turn_started(&mut chat, "turn-1");
     submit_composer_text(&mut chat, "/loop continuous keep going");
 
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 100);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(
         rendered
             .contains("Loop enabled: continuous -> keep going (will run after the current task)"),
@@ -494,7 +502,7 @@ async fn loop_continuous_enable_is_deferred_while_task_running() {
 
 #[tokio::test]
 async fn loop_off_is_allowed_while_task_running() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     submit_composer_text(&mut chat, "/loop 5m keep going");
@@ -504,25 +512,25 @@ async fn loop_off_is_allowed_while_task_running() {
     submit_composer_text(&mut chat, "/loop off");
 
     assert!(chat.loop_state.is_none());
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 80);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(rendered.contains("Loop disabled."), "got: {rendered}");
 }
 
 #[tokio::test]
 async fn loop_status_is_allowed_while_task_running() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     handle_turn_started(&mut chat, "turn-1");
     submit_composer_text(&mut chat, "/loop status");
 
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 80);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(rendered.contains("Loop is off."), "got: {rendered}");
 }
 
 #[tokio::test]
 async fn loop_status_reports_continuous_mode() {
-    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     submit_composer_text(&mut chat, "/loop continuous keep going");
@@ -530,7 +538,7 @@ async fn loop_status_reports_continuous_mode() {
 
     submit_composer_text(&mut chat, "/loop status");
 
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 100);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(
         rendered.contains("Loop is active continuously: keep going"),
         "got: {rendered}"
@@ -640,13 +648,13 @@ async fn continuous_loop_does_not_submit_on_replayed_turn_complete() {
 
 #[tokio::test]
 async fn loop_rejects_invalid_interval() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
     submit_composer_text(&mut chat, "/loop banana check latest git");
 
     assert!(chat.loop_state.is_none());
-    let rendered = render_chatwidget(&chat, /*height*/ 20, /*width*/ 100);
+    let rendered = drain_rendered_history(&mut rx);
     assert!(
         rendered.contains("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d."),
         "got: {rendered}"
