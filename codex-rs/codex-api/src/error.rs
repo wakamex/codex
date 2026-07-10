@@ -42,6 +42,8 @@ pub enum ApiError {
     },
     #[error("server overloaded")]
     ServerOverloaded,
+    #[error("service requested a slower request rate")]
+    SlowDown,
 }
 
 impl From<RateLimitError> for ApiError {

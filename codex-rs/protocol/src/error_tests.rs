@@ -36,6 +36,7 @@ fn codex_err_debug_preserves_legacy_shape() {
 fn retryability_preserves_error_details_distinctions() {
     let errors = [
         (CodexErr::ServerOverloaded, false),
+        (CodexErr::SlowDown, false),
         (
             CodexErr::new(CodexErrorDetails::RateLimitExceeded("retry later".into())),
             true,
@@ -175,6 +176,19 @@ fn server_overloaded_maps_to_protocol() {
     assert_eq!(
         err.to_codex_protocol_error(),
         CodexErrorInfo::ServerOverloaded
+    );
+}
+
+#[test]
+fn slow_down_maps_to_server_overloaded_protocol_error() {
+    let err = CodexErr::SlowDown;
+    assert_eq!(
+        err.to_codex_protocol_error(),
+        CodexErrorInfo::ServerOverloaded
+    );
+    assert_eq!(
+        err.to_string(),
+        "The service asked Codex to slow down. Reduce request frequency or concurrency and try again."
     );
 }
 

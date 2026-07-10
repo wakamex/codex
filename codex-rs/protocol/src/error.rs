@@ -134,6 +134,10 @@ pub enum CodexErrorDetails {
     UsageLimitReached(UsageLimitReachedError),
     #[error("Selected model is at capacity. Please try a different model.")]
     ServerOverloaded,
+    #[error(
+        "The service asked Codex to slow down. Reduce request frequency or concurrency and try again."
+    )]
+    SlowDown,
     #[error("{message}")]
     CyberPolicy { message: String },
     #[error("{message}")]
@@ -320,6 +324,7 @@ impl CodexErr {
         Spawn,
         Interrupted,
         ServerOverloaded,
+        SlowDown,
         QuotaExceeded,
         UsageNotIncluded,
         InternalServerError,
@@ -392,6 +397,7 @@ impl CodexErr {
             | CodexErrorDetails::SessionConfiguredNotFirstEvent
             | CodexErrorDetails::UsageLimitReached(_)
             | CodexErrorDetails::ServerOverloaded
+            | CodexErrorDetails::SlowDown
             | CodexErrorDetails::CyberPolicy { .. }
             | CodexErrorDetails::MisalignmentPolicyViolation { .. } => false,
             CodexErrorDetails::Stream(..)
@@ -436,7 +442,9 @@ impl CodexErr {
             CodexErrorDetails::UsageLimitReached(_)
             | CodexErrorDetails::QuotaExceeded
             | CodexErrorDetails::UsageNotIncluded => CodexErrorInfo::UsageLimitExceeded,
-            CodexErrorDetails::ServerOverloaded => CodexErrorInfo::ServerOverloaded,
+            CodexErrorDetails::ServerOverloaded | CodexErrorDetails::SlowDown => {
+                CodexErrorInfo::ServerOverloaded
+            }
             CodexErrorDetails::CyberPolicy { .. } => CodexErrorInfo::CyberPolicy,
             CodexErrorDetails::MisalignmentPolicyViolation { .. } => {
                 CodexErrorInfo::MisalignmentPolicyViolation

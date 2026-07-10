@@ -52,6 +52,12 @@ fn map_api_error_preserves_retry_delay() {
 }
 
 #[test]
+fn map_api_error_maps_slow_down() {
+    let err = map_api_error(ApiError::SlowDown);
+    assert!(matches!(err.details(), CodexErrorDetails::SlowDown));
+}
+
+#[test]
 fn map_api_error_maps_server_overloaded_from_503_body() {
     let body = serde_json::json!({
         "error": {
@@ -67,6 +73,24 @@ fn map_api_error_maps_server_overloaded_from_503_body() {
     }));
 
     assert!(matches!(err.details(), CodexErrorDetails::ServerOverloaded));
+}
+
+#[test]
+fn map_api_error_maps_slow_down_from_503_body() {
+    let body = serde_json::json!({
+        "error": {
+            "code": "slow_down"
+        }
+    })
+    .to_string();
+    let err = map_api_error(ApiError::Transport(TransportError::Http {
+        status: http::StatusCode::SERVICE_UNAVAILABLE,
+        url: Some("http://example.com/v1/responses".to_string()),
+        headers: None,
+        body: Some(body),
+    }));
+
+    assert!(matches!(err.details(), CodexErrorDetails::SlowDown));
 }
 
 #[test]

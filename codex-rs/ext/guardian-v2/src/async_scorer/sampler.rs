@@ -435,6 +435,7 @@ impl LunaSampler {
                 | ApiError::RateLimit(_)
                 | ApiError::InvalidRequest { .. }
                 | ApiError::MisalignmentPolicyViolation { .. }
+                | ApiError::SlowDown
                 | ApiError::CyberPolicy { .. },
             ) => false,
         };
