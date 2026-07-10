@@ -406,6 +406,8 @@ pub fn process_responses_event(
                         response_error = ApiError::InvalidRequest { message };
                     } else if is_server_overloaded_error(&error) {
                         response_error = ApiError::ServerOverloaded;
+                    } else if is_slow_down_error(&error) {
+                        response_error = ApiError::SlowDown;
                     } else {
                         let delay = try_parse_retry_after(&error);
                         let message = error.message.unwrap_or_default();
@@ -639,7 +641,10 @@ fn is_cyber_policy_error(error: &Error) -> bool {
 
 fn is_server_overloaded_error(error: &Error) -> bool {
     error.code.as_deref() == Some("server_is_overloaded")
-        || error.code.as_deref() == Some("slow_down")
+}
+
+fn is_slow_down_error(error: &Error) -> bool {
+    error.code.as_deref() == Some("slow_down")
 }
 
 fn cyber_policy_fallback_message() -> String {
@@ -992,6 +997,28 @@ mod tests {
             }
             other => panic!("unexpected second event: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn server_overloaded_error_is_distinct_from_slow_down() {
+        let raw_error = r#"{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"overloaded"}}}"#;
+        let sse = format!("event: response.failed\ndata: {raw_error}\n\n");
+
+        let events = collect_events(&[sse.as_bytes()]).await;
+
+        assert_eq!(events.len(), 1);
+        assert_matches!(events[0], Err(ApiError::ServerOverloaded));
+    }
+
+    #[tokio::test]
+    async fn slow_down_error_is_distinct_from_server_overloaded() {
+        let raw_error = r#"{"type":"response.failed","response":{"error":{"code":"slow_down","message":"slow down"}}}"#;
+        let sse = format!("event: response.failed\ndata: {raw_error}\n\n");
+
+        let events = collect_events(&[sse.as_bytes()]).await;
+
+        assert_eq!(events.len(), 1);
+        assert_matches!(events[0], Err(ApiError::SlowDown));
     }
 
     #[tokio::test]

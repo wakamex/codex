@@ -23,6 +23,7 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
         ApiError::Retryable { message, delay } => CodexErr::Stream(message, delay),
         ApiError::Stream(msg) => CodexErr::Stream(msg, None),
         ApiError::ServerOverloaded => CodexErr::ServerOverloaded,
+        ApiError::SlowDown => CodexErr::SlowDown,
         ApiError::Api { status, message } => {
             let user_message = api_error_user_message(status, &message);
             CodexErr::UnexpectedStatus(UnexpectedResponseError {
@@ -49,15 +50,16 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
 
                 if status == http::StatusCode::SERVICE_UNAVAILABLE
                     && let Ok(value) = serde_json::from_str::<serde_json::Value>(&body_text)
-                    && matches!(
-                        value
-                            .get("error")
-                            .and_then(|error| error.get("code"))
-                            .and_then(serde_json::Value::as_str),
-                        Some("server_is_overloaded" | "slow_down")
-                    )
                 {
-                    return CodexErr::ServerOverloaded;
+                    match value
+                        .get("error")
+                        .and_then(|error| error.get("code"))
+                        .and_then(serde_json::Value::as_str)
+                    {
+                        Some("server_is_overloaded") => return CodexErr::ServerOverloaded,
+                        Some("slow_down") => return CodexErr::SlowDown,
+                        Some(_) | None => {}
+                    }
                 }
 
                 if status == http::StatusCode::BAD_REQUEST {

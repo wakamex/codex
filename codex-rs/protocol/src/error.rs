@@ -116,6 +116,10 @@ pub enum CodexErr {
     UsageLimitReached(UsageLimitReachedError),
     #[error("Selected model is at capacity. Please try a different model.")]
     ServerOverloaded,
+    #[error(
+        "The service asked Codex to slow down. Reduce request frequency or concurrency and try again."
+    )]
+    SlowDown,
     #[error("{message}")]
     CyberPolicy { message: String },
     #[error("{0}")]
@@ -196,6 +200,7 @@ impl CodexErr {
             | CodexErr::SessionConfiguredNotFirstEvent
             | CodexErr::UsageLimitReached(_)
             | CodexErr::ServerOverloaded
+            | CodexErr::SlowDown
             | CodexErr::CyberPolicy { .. } => false,
             CodexErr::Stream(..)
             | CodexErr::Timeout
@@ -228,7 +233,7 @@ impl CodexErr {
             CodexErr::UsageLimitReached(_)
             | CodexErr::QuotaExceeded
             | CodexErr::UsageNotIncluded => CodexErrorInfo::UsageLimitExceeded,
-            CodexErr::ServerOverloaded => CodexErrorInfo::ServerOverloaded,
+            CodexErr::ServerOverloaded | CodexErr::SlowDown => CodexErrorInfo::ServerOverloaded,
             CodexErr::CyberPolicy { .. } => CodexErrorInfo::CyberPolicy,
             CodexErr::RetryLimit(_) => CodexErrorInfo::ResponseTooManyFailedAttempts {
                 http_status_code: self.http_status_code_value(),

@@ -113,6 +113,19 @@ fn server_overloaded_maps_to_protocol() {
 }
 
 #[test]
+fn slow_down_maps_to_server_overloaded_protocol_error() {
+    let err = CodexErr::SlowDown;
+    assert_eq!(
+        err.to_codex_protocol_error(),
+        CodexErrorInfo::ServerOverloaded
+    );
+    assert_eq!(
+        err.to_string(),
+        "The service asked Codex to slow down. Reduce request frequency or concurrency and try again."
+    );
+}
+
+#[test]
 fn sandbox_denied_uses_aggregated_output_when_stderr_empty() {
     let output = ExecToolCallOutput {
         exit_code: 77,

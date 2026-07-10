@@ -31,6 +31,8 @@ pub enum ApiError {
     CyberPolicy { message: String },
     #[error("server overloaded")]
     ServerOverloaded,
+    #[error("service requested a slower request rate")]
+    SlowDown,
 }
 
 impl From<RateLimitError> for ApiError {
