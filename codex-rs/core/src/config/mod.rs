@@ -1030,6 +1030,9 @@ pub struct Config {
     /// Policy for collecting and validating tool runtimes.
     pub tool_registry: ToolRegistryConfig,
 
+    /// Whether tools are included in model requests for this session.
+    pub model_tools_enabled: bool,
+
     /// Configuration for the experimental code-mode tool surface.
     pub code_mode: CodeModeConfig,
 
@@ -2589,6 +2592,7 @@ pub struct ConfigOverrides {
     pub compact_prompt: Option<String>,
     pub show_raw_agent_reasoning: Option<bool>,
     pub tools_web_search_request: Option<bool>,
+    pub model_tools_enabled: Option<bool>,
     pub ephemeral: Option<bool>,
     pub bypass_hook_trust: Option<bool>,
     /// Additional directories that should be treated as writable roots for this session.
@@ -3249,6 +3253,7 @@ impl Config {
             compact_prompt,
             show_raw_agent_reasoning,
             tools_web_search_request: override_tools_web_search_request,
+            model_tools_enabled,
             ephemeral,
             bypass_hook_trust,
             additional_writable_roots,
@@ -4308,6 +4313,7 @@ impl Config {
             experimental_request_user_input_enabled,
             update_plan_enabled,
             tool_registry,
+            model_tools_enabled: model_tools_enabled.unwrap_or(true),
             code_mode,
             background_terminal_max_timeout,
             thread_unload_delay,

@@ -133,6 +133,10 @@ pub(crate) fn build_tool_router(
     step_store: &ExtensionData,
     tool_suggest_candidates: Option<&crate::tools::router::ToolSuggestCandidates>,
 ) -> CodexResult<ToolRouter> {
+    if let Some(router) = disabled_model_tools_router(turn_context) {
+        return Ok(router);
+    }
+
     let default_agent_type_description =
         crate::agent::role::spawn_tool_spec::build(&std::collections::BTreeMap::new());
     let wait_for_environment_tool_config = session
@@ -356,6 +360,10 @@ pub(crate) fn finalize_tool_router(
     hosted_specs: Vec<ToolSpec>,
     tool_search_handler_cache: &ToolSearchHandlerCache,
 ) -> CodexResult<ToolRouter> {
+    if let Some(router) = disabled_model_tools_router(turn_context) {
+        return Ok(router);
+    }
+
     apply_direct_model_only_namespace_overrides(turn_context, &mut registry);
     let tool_mode = effective_tool_mode(turn_context, model_info);
     let code_mode_enabled = matches!(tool_mode, ToolMode::CodeMode | ToolMode::CodeModeOnly);
@@ -492,6 +500,11 @@ pub(crate) fn finalize_tool_router(
         tool_namespaces_info,
         &child_management_tools,
     ))
+}
+
+fn disabled_model_tools_router(turn_context: &TurnContext) -> Option<ToolRouter> {
+    (!turn_context.config.model_tools_enabled)
+        .then(|| ToolRouter::from_parts(ToolRegistry::default(), Vec::new()))
 }
 
 fn apply_direct_model_only_namespace_overrides(

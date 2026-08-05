@@ -299,6 +299,7 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         experimental_request_user_input_enabled: true,
         update_plan_enabled: true,
         tool_registry: Default::default(),
+        model_tools_enabled: true,
         code_mode: Default::default(),
         background_terminal_max_timeout: 300_000,
         thread_unload_delay: std::time::Duration::from_secs(60),
