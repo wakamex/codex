@@ -1707,6 +1707,7 @@ impl ThreadRequestProcessor {
             base_instructions,
             developer_instructions,
             personality,
+            model_tools_enabled: Some(self.config.model_tools_enabled),
             ..Default::default()
         }
     }
