@@ -44,6 +44,10 @@ pub struct Cli {
     #[arg(long = "ignore-rules", global = true, default_value_t = false)]
     pub ignore_rules: bool,
 
+    /// Disable all model-visible tools for this run.
+    #[arg(long = "no-tools", global = true, default_value_t = false)]
+    pub no_tools: bool,
+
     /// Path to a JSON Schema file describing the model's final response shape.
     #[arg(long = "output-schema", value_name = "FILE", global = true)]
     pub output_schema: Option<PathBuf>,
