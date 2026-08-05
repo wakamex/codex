@@ -12,6 +12,7 @@ mod daybreak;
 mod ephemeral;
 mod hooks;
 mod mcp_required_exit;
+mod no_tools;
 mod originator;
 mod output_last_message;
 mod output_schema;

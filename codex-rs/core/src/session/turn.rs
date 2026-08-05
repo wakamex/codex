@@ -1838,12 +1838,16 @@ pub(super) fn collect_explicit_app_ids_from_skill_items(
 
 #[instrument(level = "trace", skip_all)]
 pub(crate) fn build_prompt(
-    input: Vec<ResponseItem>,
+    mut input: Vec<ResponseItem>,
     step_context: &StepContext,
     base_instructions: BaseInstructions,
     incremental_tools: bool,
 ) -> Prompt {
     let turn_context = &step_context.turn;
+    if !turn_context.config.model_tools_enabled {
+        // History keeps tool declarations from earlier turns; a tool-free request omits them.
+        input.retain(|item| !matches!(item, ResponseItem::AdditionalTools { .. }));
+    }
     Prompt {
         input,
         tools: if incremental_tools {
