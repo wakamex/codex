@@ -201,6 +201,46 @@ async fn probe(configure_turn: impl FnOnce(&mut TurnContext)) -> ToolPlanProbe {
     probe_with(configure_turn, ToolPlanInputs::default()).await
 }
 
+#[tokio::test]
+async fn disabled_model_tools_produce_an_empty_plan() {
+    let plan = probe_with(
+        |turn| {
+            update_config(turn, |config| {
+                config.model_tools_enabled = false;
+            });
+            set_features(
+                turn,
+                &[
+                    Feature::Apps,
+                    Feature::Collab,
+                    Feature::CodeMode,
+                    Feature::ImageGeneration,
+                    Feature::MultiAgentV2,
+                    Feature::Plugins,
+                    Feature::StandaloneWebSearch,
+                    Feature::ToolSuggest,
+                ],
+            );
+            set_web_search_mode(turn, WebSearchMode::Live);
+            turn.model_info.supports_search_tool = true;
+        },
+        ToolPlanInputs {
+            mcp_tools: Some(vec![mcp_tool("direct", "mcp__direct", "lookup")]),
+            deferred_mcp_tools: Some(vec![mcp_tool("searchable", "mcp__searchable", "lookup")]),
+            tool_suggest_candidates: Some(plugin_candidates(ToolSuggestPresentation::ListTool)),
+            extension_tool_executors: vec![Arc::new(TestNamespaceExtensionTool {
+                namespace: "extension",
+                tool_name: "run",
+            })],
+            dynamic_tools: vec![dynamic_tool(Some("dynamic"), "run", false)],
+        },
+    )
+    .await;
+
+    assert!(plan.visible_specs.is_empty());
+    assert!(plan.registered_names.is_empty());
+}
+
 fn set_feature(turn: &mut TurnContext, feature: Feature, enabled: bool) {
     let mut config = (*turn.config).clone();
     if enabled {

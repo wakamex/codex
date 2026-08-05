@@ -1021,6 +1021,9 @@ pub struct Config {
     /// Whether to register the experimental request_user_input tool.
     pub experimental_request_user_input_enabled: bool,
 
+    /// Whether tools are included in model requests for this session.
+    pub model_tools_enabled: bool,
+
     /// Configuration for the experimental code-mode tool surface.
     pub code_mode: CodeModeConfig,
 
@@ -2419,6 +2422,7 @@ pub struct ConfigOverrides {
     pub compact_prompt: Option<String>,
     pub show_raw_agent_reasoning: Option<bool>,
     pub tools_web_search_request: Option<bool>,
+    pub model_tools_enabled: Option<bool>,
     pub ephemeral: Option<bool>,
     pub bypass_hook_trust: Option<bool>,
     /// Additional directories that should be treated as writable roots for this session.
@@ -3012,6 +3016,7 @@ impl Config {
             compact_prompt,
             show_raw_agent_reasoning,
             tools_web_search_request: override_tools_web_search_request,
+            model_tools_enabled,
             ephemeral,
             bypass_hook_trust,
             additional_writable_roots,
@@ -3942,6 +3947,7 @@ impl Config {
             web_search_mode: constrained_web_search_mode.value,
             web_search_config,
             experimental_request_user_input_enabled,
+            model_tools_enabled: model_tools_enabled.unwrap_or(true),
             code_mode,
             use_experimental_unified_exec_tool,
             background_terminal_max_timeout,

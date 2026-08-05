@@ -7,6 +7,7 @@ mod auth_env;
 mod ephemeral;
 mod hooks;
 mod mcp_required_exit;
+mod no_tools;
 mod originator;
 mod output_schema;
 mod prompt_stdin;

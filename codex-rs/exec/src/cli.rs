@@ -39,6 +39,10 @@ pub struct Cli {
     #[arg(long = "ignore-rules", global = true, default_value_t = false)]
     pub ignore_rules: bool,
 
+    /// Disable all model-visible tools for this run.
+    #[arg(long = "no-tools", global = true, default_value_t = false)]
+    pub no_tools: bool,
+
     /// Legacy compatibility trap for the removed `--full-auto` flag.
     #[arg(
         long = "full-auto",

@@ -194,6 +194,9 @@ fn build_tool_specs_and_registry(
         wait_agent_timeouts: wait_agent_timeout_options(turn_context),
     };
     let mut planned_tools = PlannedTools::default();
+    if !turn_context.config.model_tools_enabled {
+        return build_model_visible_specs_and_registry(turn_context, planned_tools);
+    }
     add_tool_sources(&context, &mut planned_tools);
     apply_direct_model_only_namespace_overrides(turn_context, &mut planned_tools);
     append_tool_search_executor(&context, &mut planned_tools);
