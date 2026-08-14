@@ -602,6 +602,9 @@ impl App {
             AppEvent::StopCommitAnimation => {
                 self.commit_animation = None;
             }
+            AppEvent::LoopTick { generation } => {
+                self.chat_widget.on_loop_tick(generation);
+            }
             AppEvent::Exit(mode) => {
                 if matches!(mode, ExitMode::ShutdownFirst | ExitMode::ShutdownAfterInterrupt) {
                     self.show_shutdown_feedback(tui)?;

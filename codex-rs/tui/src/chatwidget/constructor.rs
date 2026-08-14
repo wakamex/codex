@@ -159,6 +159,8 @@ impl ChatWidget {
             automatic_model_switch_state: backend_banners::AutomaticModelSwitchState::default(),
             backend_banner_notice_model: None,
             luna_reserve_notice_account_id: None,
+            loop_state: None,
+            next_loop_generation: 0,
             warning_display_state: WarningDisplayState::default(),
             rate_limit_switch_prompt: RateLimitSwitchPromptState::default(),
             add_credits_nudge_email_in_flight: None,

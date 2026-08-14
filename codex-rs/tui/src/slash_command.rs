@@ -42,6 +42,7 @@ pub enum SlashCommand {
     Plan,
     Goal,
     Agents,
+    Loop,
     Side,
     Btw,
     Copy,
@@ -129,6 +130,7 @@ impl SlashCommand {
             SlashCommand::Personality => "choose a communication style for Codex",
             SlashCommand::Plan => "switch to Plan mode",
             SlashCommand::Goal => "set or view the goal for a long-running task",
+            SlashCommand::Loop => "run a saved prompt on a schedule",
             SlashCommand::Agents => "view and switch between all active agent sessions",
             SlashCommand::MultiAgents => "switch between this session's subagents",
             SlashCommand::Side | SlashCommand::Btw => {
@@ -177,6 +179,7 @@ impl SlashCommand {
                 | SlashCommand::Raw
                 | SlashCommand::Cd
                 | SlashCommand::Pwd
+                | SlashCommand::Loop
                 | SlashCommand::Usage
                 | SlashCommand::Pets
                 | SlashCommand::Side
@@ -200,6 +203,7 @@ impl SlashCommand {
                 | SlashCommand::Pwd
                 | SlashCommand::Usage
                 | SlashCommand::Ide
+                | SlashCommand::Loop
         )
     }
 
@@ -247,6 +251,7 @@ impl SlashCommand {
             | SlashCommand::Stop
             | SlashCommand::App
             | SlashCommand::Goal
+            | SlashCommand::Loop
             | SlashCommand::Mcp
             | SlashCommand::Apps
             | SlashCommand::Plugins
