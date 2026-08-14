@@ -340,6 +340,7 @@ mod tests {
             vec![
                 SlashCommand::Ide,
                 SlashCommand::Agents,
+                SlashCommand::Loop,
                 SlashCommand::Copy,
                 SlashCommand::Export,
                 SlashCommand::Raw,
