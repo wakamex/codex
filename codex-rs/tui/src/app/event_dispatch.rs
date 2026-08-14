@@ -1167,6 +1167,9 @@ impl App {
             AppEvent::StopCommitAnimation => {
                 self.commit_animation = None;
             }
+            AppEvent::LoopTick { generation } => {
+                self.chat_widget.on_loop_tick(generation);
+            }
             AppEvent::Exit(mode)
                 if matches!(self.app_server_target, AppServerTarget::Embedded)
                     && (self.agents_overview.threads.iter().any(|(id, thread)| {

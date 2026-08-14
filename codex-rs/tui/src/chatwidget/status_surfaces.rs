@@ -4,6 +4,7 @@
 //! behavior easier to review without paging through the rest of `chatwidget.rs`.
 
 use super::*;
+use crate::bottom_pane::footer_content::FooterContent;
 use crate::bottom_pane::status_line_content::StatusLineRenderer;
 use crate::branch_summary;
 use crate::chatwidget::limit_label_for_window;
@@ -15,6 +16,8 @@ use crate::status::format_estimated_usd_micros;
 use crate::status::format_tokens_compact;
 use crate::status::thread_cost_micros;
 use crate::terminal_program_status::ProgramStatus;
+use crate::ui_tree::UiNode;
+use crate::ui_tree::UiTree;
 use codex_app_server_protocol::AskForApproval;
 use codex_config::ConfigLayerSource;
 use codex_config::os_host_name;
@@ -202,7 +205,8 @@ impl ChatWidget {
     }
 
     fn refresh_status_line_from_selections(&mut self, selections: &StatusSurfaceSelections) {
-        let enabled = !selections.status_line_items.is_empty();
+        let loop_indicator = self.loop_indicator_text();
+        let enabled = !selections.status_line_items.is_empty() || loop_indicator.is_some();
         self.bottom_pane.set_status_line_enabled(enabled);
         if !enabled {
             self.set_status_line(/*status_line*/ None);
@@ -215,14 +219,13 @@ impl ChatWidget {
                 segments.push((*item, value));
             }
         }
-
         let content = self.status_line_renderer().content(
             segments,
             self.local_settings.tui.status_line_use_colors,
             self.thread_id,
             self.status_line_pull_request_url(),
         );
-        self.set_status_line(content);
+        self.set_status_line(with_loop_indicator(content, loop_indicator));
     }
 
     pub(super) fn status_line_renderer(&self) -> StatusLineRenderer {
@@ -1305,4 +1308,49 @@ where
         }
     }
     (items, invalid)
+}
+
+const LOOP_INDICATOR_SEPARATOR: &str = " | ";
+
+/// Appends the `/loop` indicator to rendered status-line content, or shows it alone.
+fn with_loop_indicator(
+    content: Option<FooterContent>,
+    loop_indicator: Option<String>,
+) -> Option<FooterContent> {
+    let Some(indicator) = loop_indicator else {
+        return content;
+    };
+    let push_to_line = |line: &mut Line<'static>| {
+        if !line.spans.is_empty() {
+            line.push_span(LOOP_INDICATOR_SEPARATOR.dim());
+        }
+        line.push_span(indicator.clone().dim());
+    };
+    match content {
+        None => Some(FooterContent::Line(Line::from(indicator.dim()))),
+        Some(FooterContent::Line(mut line)) => {
+            push_to_line(&mut line);
+            Some(FooterContent::Line(line))
+        }
+        Some(FooterContent::HyperlinkLine(mut line)) => {
+            push_to_line(&mut line.line);
+            Some(FooterContent::HyperlinkLine(line))
+        }
+        Some(FooterContent::Extension {
+            content:
+                UiTree(Some(UiNode::Row {
+                    props,
+                    mut children,
+                })),
+        }) => {
+            if !children.is_empty() {
+                children.push(Some(UiNode::String(LOOP_INDICATOR_SEPARATOR.to_owned())));
+            }
+            children.push(Some(UiNode::String(indicator)));
+            Some(FooterContent::Extension {
+                content: UiTree(Some(UiNode::Row { props, children })),
+            })
+        }
+        Some(other) => Some(other),
+    }
 }
