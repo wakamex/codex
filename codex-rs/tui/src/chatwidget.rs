@@ -171,6 +171,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::JoinHandle;
 use tracing::debug;
 use tracing::warn;
 
@@ -187,6 +188,103 @@ const AMBIENT_PET_WRAP_GAP_COLUMNS: u16 = 2;
 const TUI_STUB_MESSAGE: &str = "Not available in TUI yet.";
 const PARENT_OWNED_INPUT_MESSAGE: &str =
     "This sub-agent is controlled by its parent. Direct input is disabled.";
+
+enum LoopMode {
+    Interval {
+        interval: Duration,
+        interval_label: String,
+    },
+    Continuous,
+}
+
+struct LoopState {
+    mode: LoopMode,
+    prompt: String,
+    last_run_at: Option<Instant>,
+    next_run_at: Option<Instant>,
+    generation: u64,
+    handle: Option<JoinHandle<()>>,
+}
+
+enum LoopCommandArgs {
+    Enable { mode: LoopMode, prompt: String },
+    Off,
+    Status,
+}
+
+fn parse_loop_interval(raw: &str) -> Result<(Duration, String), String> {
+    let raw = raw.trim();
+    if raw.len() < 2 {
+        return Err("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string());
+    }
+
+    let (value, unit) = raw.split_at(raw.len() - 1);
+    let value: u64 = value
+        .parse()
+        .map_err(|_| "Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string())?;
+    if value == 0 {
+        return Err("Loop interval must be greater than zero.".to_string());
+    }
+
+    let seconds = match unit.to_ascii_lowercase().as_str() {
+        "s" => value,
+        "m" => value.saturating_mul(60),
+        "h" => value.saturating_mul(60 * 60),
+        "d" => value.saturating_mul(60 * 60 * 24),
+        "w" => value.saturating_mul(60 * 60 * 24 * 7),
+        _ => {
+            return Err("Invalid loop interval. Use values like 30s, 5m, 2h, or 1d.".to_string());
+        }
+    };
+
+    Ok((
+        Duration::from_secs(seconds),
+        format!("{value}{}", unit.to_ascii_lowercase()),
+    ))
+}
+
+fn parse_loop_command_args(raw: &str) -> Result<LoopCommandArgs, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(
+            "Usage: /loop <interval> <prompt> | /loop continuous <prompt> | /loop off | /loop status"
+                .to_string(),
+        );
+    }
+
+    match trimmed {
+        "off" => Ok(LoopCommandArgs::Off),
+        "status" => Ok(LoopCommandArgs::Status),
+        _ => {
+            let Some((mode_text, prompt)) = trimmed.split_once(char::is_whitespace) else {
+                return Err(
+                    "Usage: /loop <interval> <prompt> | /loop continuous <prompt> | /loop off | /loop status"
+                        .to_string(),
+                );
+            };
+            let prompt = prompt.trim();
+            if prompt.is_empty() {
+                return Err(
+                    "Usage: /loop <interval> <prompt> | /loop continuous <prompt> | /loop off | /loop status"
+                        .to_string(),
+                );
+            }
+            let mode = if mode_text.eq_ignore_ascii_case("continuous") {
+                LoopMode::Continuous
+            } else {
+                let (interval, interval_label) = parse_loop_interval(mode_text)?;
+                LoopMode::Interval {
+                    interval,
+                    interval_label,
+                }
+            };
+            Ok(LoopCommandArgs::Enable {
+                mode,
+                prompt: prompt.to_string(),
+            })
+        }
+    }
+}
 
 /// Choose the keybinding used to edit the most-recently queued message.
 ///
@@ -636,6 +734,8 @@ pub(crate) struct ChatWidget {
     backend_banner_notice_model: Option<String>,
     // Remember the account's Reserve entry notice across chats and transient banner refreshes.
     luna_reserve_notice_account_id: Option<String>,
+    loop_state: Option<LoopState>,
+    next_loop_generation: u64,
     warning_display_state: WarningDisplayState,
     rate_limit_switch_prompt: RateLimitSwitchPromptState,
     add_credits_nudge_email_in_flight: Option<rate_limits::PendingCreditsNudge>,
@@ -2074,6 +2174,187 @@ impl ChatWidget {
         self.bottom_pane.status_line_text()
     }
 
+    fn loop_indicator_text(&self) -> Option<String> {
+        self.loop_state.as_ref().map(|state| match &state.mode {
+            LoopMode::Interval { interval_label, .. } => format!("Loop: every {interval_label}"),
+            LoopMode::Continuous => "Loop: continuous".to_string(),
+        })
+    }
+
+    fn stop_loop_task(&mut self) {
+        if let Some(loop_state) = self.loop_state.take() {
+            if let Some(handle) = loop_state.handle {
+                handle.abort();
+            }
+            self.refresh_status_line();
+        }
+    }
+
+    fn add_loop_status_output(&mut self) {
+        let Some(loop_state) = self.loop_state.as_ref() else {
+            self.add_info_message("Loop is off.".to_string(), /*hint*/ None);
+            return;
+        };
+
+        let message = match &loop_state.mode {
+            LoopMode::Interval { interval_label, .. } => {
+                let next_run_in = loop_state
+                    .next_run_at
+                    .unwrap_or_else(Instant::now)
+                    .saturating_duration_since(Instant::now());
+                let mut message = format!(
+                    "Loop is active every {interval_label}: {}",
+                    loop_state.prompt
+                );
+                if let Some(last_run_at) = loop_state.last_run_at {
+                    message.push_str(&format!(
+                        " (last run {} ago, next run in {})",
+                        crate::status_indicator_widget::fmt_elapsed_compact(
+                            last_run_at.elapsed().as_secs()
+                        ),
+                        crate::status_indicator_widget::fmt_elapsed_compact(next_run_in.as_secs())
+                    ));
+                } else {
+                    message.push_str(&format!(
+                        " (first run in {})",
+                        crate::status_indicator_widget::fmt_elapsed_compact(next_run_in.as_secs())
+                    ));
+                }
+                message
+            }
+            LoopMode::Continuous => {
+                let mut message = format!("Loop is active continuously: {}", loop_state.prompt);
+                if let Some(last_run_at) = loop_state.last_run_at {
+                    message.push_str(&format!(
+                        " (last run {} ago, waiting for turn completion)",
+                        crate::status_indicator_widget::fmt_elapsed_compact(
+                            last_run_at.elapsed().as_secs()
+                        )
+                    ));
+                } else {
+                    message.push_str(" (waiting for next turn completion)");
+                }
+                message
+            }
+        };
+        self.add_info_message(message, /*hint*/ None);
+    }
+
+    fn enable_loop(&mut self, mode: LoopMode, prompt: String) {
+        self.stop_loop_task();
+
+        self.next_loop_generation = self.next_loop_generation.wrapping_add(1);
+        let generation = self.next_loop_generation;
+        let continuous_kickoff_deferred =
+            matches!(mode, LoopMode::Continuous) && self.bottom_pane.is_task_running();
+        let kickoff_prompt = (matches!(mode, LoopMode::Continuous) && !continuous_kickoff_deferred)
+            .then(|| prompt.clone());
+        let (handle, next_run_at, status_message) = match &mode {
+            LoopMode::Interval {
+                interval,
+                interval_label,
+            } => {
+                let app_event_tx = self.app_event_tx.clone();
+                let interval = *interval;
+                let handle = tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(interval).await;
+                        app_event_tx.send(AppEvent::LoopTick { generation });
+                    }
+                });
+                (
+                    Some(handle),
+                    Some(Instant::now() + interval),
+                    format!("Loop enabled: every {interval_label} -> {prompt}"),
+                )
+            }
+            LoopMode::Continuous => {
+                let status_message = if continuous_kickoff_deferred {
+                    format!(
+                        "Loop enabled: continuous -> {prompt} (will run after the current task)"
+                    )
+                } else {
+                    format!("Loop enabled: continuous -> {prompt}")
+                };
+                (None, None, status_message)
+            }
+        };
+
+        self.loop_state = Some(LoopState {
+            mode,
+            prompt,
+            last_run_at: None,
+            next_run_at,
+            generation,
+            handle,
+        });
+        self.refresh_status_line();
+        self.add_info_message(status_message, /*hint*/ None);
+        if let Some(prompt) = kickoff_prompt {
+            if let Some(loop_state) = self.loop_state.as_mut() {
+                loop_state.last_run_at = Some(Instant::now());
+            }
+            self.refresh_status_line();
+            self.submit_user_message(prompt.into());
+        }
+    }
+
+    fn maybe_submit_continuous_loop(&mut self) -> bool {
+        let Some(prompt) = ({
+            let Some(loop_state) = self.loop_state.as_mut() else {
+                return false;
+            };
+            if !matches!(loop_state.mode, LoopMode::Continuous) {
+                return false;
+            }
+            if self.review.is_review_mode || self.bottom_pane.is_task_running() {
+                return false;
+            }
+            if self
+                .input_queue
+                .pending_steers
+                .iter()
+                .any(|message| message.user_message.text == loop_state.prompt)
+            {
+                return false;
+            }
+            loop_state.last_run_at = Some(Instant::now());
+            Some(loop_state.prompt.clone())
+        }) else {
+            return false;
+        };
+        self.refresh_status_line();
+        self.submit_user_message(prompt.into());
+        true
+    }
+
+    pub(crate) fn on_loop_tick(&mut self, generation: u64) {
+        let Some(loop_state) = self.loop_state.as_ref() else {
+            return;
+        };
+        if loop_state.generation != generation {
+            return;
+        }
+        let LoopMode::Interval { interval, .. } = &loop_state.mode else {
+            return;
+        };
+        let next_run_at = Instant::now() + *interval;
+        let prompt = loop_state.prompt.clone();
+        let should_submit = !self.bottom_pane.is_task_running() && !self.review.is_review_mode;
+
+        if let Some(loop_state) = self.loop_state.as_mut() {
+            loop_state.next_run_at = Some(next_run_at);
+            if should_submit {
+                loop_state.last_run_at = Some(Instant::now());
+            }
+        }
+        self.refresh_status_line();
+        if !should_submit {
+            return;
+        }
+        self.submit_user_message(prompt.into());
+    }
+
     pub(crate) fn clear_token_usage(&mut self) {
         self.token_info = None;
     }
@@ -2097,6 +2378,7 @@ impl Drop for ChatWidget {
                 .send(AppEvent::StopRealtimeConversation { thread_id });
         }
         self.reset_realtime_conversation();
+        self.stop_loop_task();
         self.stop_rate_limit_poller();
     }
 }

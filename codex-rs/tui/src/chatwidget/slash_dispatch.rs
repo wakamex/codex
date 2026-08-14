@@ -361,6 +361,11 @@ impl ChatWidget {
             SlashCommand::Voice => {
                 self.toggle_realtime_conversation();
             }
+            SlashCommand::Loop => {
+                self.add_error_message(
+                    "Usage: /loop <interval> <prompt> | /loop continuous <prompt> | /loop off | /loop status".to_string(),
+                );
+            }
             SlashCommand::Side | SlashCommand::Btw => {
                 self.request_empty_side_conversation(cmd);
             }
@@ -824,6 +829,32 @@ impl ChatWidget {
                 }
                 _ => self.add_error_message(RAW_USAGE.to_string()),
             },
+            SlashCommand::Loop => {
+                let parsed_args = match parse_loop_command_args(&args) {
+                    Ok(parsed_args) => parsed_args,
+                    Err(err) => {
+                        self.add_error_message(err);
+                        return;
+                    }
+                };
+
+                match parsed_args {
+                    LoopCommandArgs::Enable { mode, prompt } => self.enable_loop(mode, prompt),
+                    LoopCommandArgs::Off => {
+                        let was_enabled = self.loop_state.is_some();
+                        self.stop_loop_task();
+                        if was_enabled {
+                            self.add_info_message("Loop disabled.".to_string(), /*hint*/ None);
+                        } else {
+                            self.add_info_message(
+                                "Loop is already off.".to_string(),
+                                /*hint*/ None,
+                            );
+                        }
+                    }
+                    LoopCommandArgs::Status => self.add_loop_status_output(),
+                }
+            }
             SlashCommand::Rename if !trimmed.is_empty() => {
                 if !self.ensure_thread_rename_allowed() {
                     return;
@@ -1218,6 +1249,7 @@ impl ChatWidget {
             | SlashCommand::Vim
             | SlashCommand::Diff
             | SlashCommand::App
+            | SlashCommand::Loop
             | SlashCommand::Rename
             | SlashCommand::Voice
             | SlashCommand::Recap

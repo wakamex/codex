@@ -201,7 +201,8 @@ impl ChatWidget {
         }
         if !from_replay {
             // Emit a notification only when the live agent is waiting for the user.
-            let follow_up_started = self.maybe_send_next_queued_input();
+            let follow_up_started =
+                self.maybe_send_next_queued_input() || self.maybe_submit_continuous_loop();
             let active_goal_continuing = self
                 .current_goal_status
                 .as_ref()

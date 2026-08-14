@@ -9,6 +9,33 @@ If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="http
 
 ---
 
+## This Fork Adds `/loop`
+
+This fork adds a minimal built-in `/loop` command to the Codex TUI.
+
+```text
+/loop 5m check the repo for new changes and act if needed
+/loop continuous keep checking until I stop it
+/loop status
+/loop off
+```
+
+Current v1 limits:
+
+- session-local only
+- in-memory only
+- only one active loop per session
+- interval loops only submit when the agent is idle
+- `continuous` loops submit immediately when idle, or after the current task when enabled mid-turn, then again at each live turn boundary
+
+Build and install this fork locally:
+
+```shell
+cd codex-rs
+cargo build --release -p codex-cli --bin codex
+sudo install -m 0755 target/release/codex /usr/local/bin/codex
+```
+
 ## Quickstart
 
 ### Installing and running Codex CLI

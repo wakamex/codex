@@ -42,6 +42,7 @@ pub enum SlashCommand {
     Voice,
     Goal,
     Agents,
+    Loop,
     Side,
     Btw,
     Copy,
@@ -136,6 +137,7 @@ impl SlashCommand {
             SlashCommand::Voice => "start or stop voice; use /voice settings to choose a voice",
             SlashCommand::Goal => "set or view the goal for a long-running task",
             SlashCommand::Agents => "open the agent command center",
+            SlashCommand::Loop => "run a saved prompt on a schedule or every turn",
             SlashCommand::MultiAgents => "switch between this session's subagents",
             SlashCommand::Side | SlashCommand::Btw => {
                 "start a side conversation in an ephemeral fork"
@@ -181,6 +183,7 @@ impl SlashCommand {
                 | SlashCommand::Raw
                 | SlashCommand::Cd
                 | SlashCommand::Pwd
+                | SlashCommand::Loop
                 | SlashCommand::Usage
                 | SlashCommand::Pets
                 | SlashCommand::Side
@@ -205,6 +208,7 @@ impl SlashCommand {
                 | SlashCommand::Pwd
                 | SlashCommand::Usage
                 | SlashCommand::Ide
+                | SlashCommand::Loop
         )
     }
 
@@ -282,6 +286,7 @@ impl SlashCommand {
             | SlashCommand::App
             | SlashCommand::Goal
             | SlashCommand::Voice
+            | SlashCommand::Loop
             | SlashCommand::Mcp
             | SlashCommand::Apps
             | SlashCommand::Plugins
