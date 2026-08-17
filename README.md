@@ -9,9 +9,14 @@ If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="http
 
 ---
 
-## This Fork Adds `/loop`
+## Fork Additions
 
-This fork adds a minimal built-in `/loop` command to the Codex TUI.
+The material user-facing additions are TUI loops, completion timestamps, tool-free exec sessions,
+and clearer slow-down errors. Repository maintenance helpers are documented separately below.
+
+### TUI Loops
+
+The built-in `/loop` command can run a prompt on an interval or continuously:
 
 ```text
 /loop 5m check the repo for new changes and act if needed
@@ -28,12 +33,109 @@ Current v1 limits:
 - interval loops only submit when the agent is idle
 - `continuous` loops submit immediately when idle, or after the current task when enabled mid-turn, then again at each live turn boundary
 
-Build and install this fork locally:
+### Finished Timestamps
+
+For work lasting more than one minute, the TUI turn separator includes the local completion time:
+
+```text
+Worked for 5m 57s, finished at 14:32 on 17 Aug 2026
+```
+
+### Tool-Free Exec
+
+Use `--no-tools` for new or resumed non-interactive sessions without exposing model-visible tools:
 
 ```shell
-cd codex-rs
-cargo build --release -p codex-cli --bin codex
-sudo install -m 0755 target/release/codex /usr/local/bin/codex
+codex exec --no-tools "Answer using only your existing context"
+codex exec resume --last --no-tools "Continue without tools"
+```
+
+### Clearer Slow-Down Errors
+
+Service requests to slow down are reported separately from model-capacity errors. The resulting
+message recommends reducing request frequency or concurrency instead of suggesting a different
+model.
+
+### Fork Maintenance
+
+The repository includes helpers for maintaining and building the fork:
+
+- `just rebase-upstream` rebases the current branch onto `upstream/main` after creating a backup branch
+- `just rebase-status`, `just rebase-continue`, and `just rebase-abort` are convenience wrappers for an in-progress rebase
+- `just audit-fork` starts the separate full fork-maintenance audit flow using the latest pre-rebase backup
+- `just set-local-version` stamps the Rust workspace with the latest included upstream release and commit
+- `just build-local` downloads and verifies the matching V8 artifacts, then builds the current CLI and code-mode host
+
+### Rebase and resolve conflicts
+
+To update the fork, start from a clean `main` branch:
+
+```shell
+git switch main
+git status --short
+just rebase-upstream
+```
+
+If the rebase stops, resolve and stage the reported conflicts and run `git rebase --continue`, or
+return to the pre-rebase state with `git rebase --abort`. These native commands remain available even
+if the justfile itself is being replayed. The helper creates and prints a timestamped backup branch
+before rewriting anything.
+
+When `git rebase` completes, this flow is done. Stack consolidation, range-diff review, the complete
+test suite, linting, version stamping, and release builds are part of the separate audit flow below.
+They are not follow-up steps of `just rebase-upstream` or conflict resolution.
+
+### Full fork-maintenance audit
+
+Run this flow separately when you deliberately want a complete review of the fork:
+
+```shell
+just audit-fork
+```
+
+The helper selects the latest `backup/main-before-upstream-rebase-*` branch and prints the exact
+checklist and range-diff command. Pass a backup branch explicitly if you want to audit a different
+rebase:
+
+```shell
+just audit-fork backup/main-before-upstream-rebase-YYYYMMDD-HHMMSS
+```
+
+Review the complete local stack with `git rebase -i upstream/main`. Combine related changes where
+useful and drop the previous `Stamp workspace with local version` commit. Then run the printed
+`git range-diff` command to compare the old fork stack with the updated one.
+
+Run the focused tests needed for the fork changes, followed by the complete suite:
+
+```shell
+uv run python scripts/test_set_local_version.py
+uv run python scripts/test_build_local.py
+just test
+```
+
+Run scoped `just fix -p <crate>` checks for the affected Rust crates. Then format the final stack and
+recreate the version stamp as its last commit:
+
+```shell
+just fmt
+just set-local-version
+git add codex-rs/Cargo.toml codex-rs/Cargo.lock
+git commit -m "Stamp workspace with local version"
+```
+
+Build the locally versioned binaries, confirm the CLI's reported version, and install them:
+
+```shell
+just build-local
+codex-rs/target/release/codex --version
+sudo install -m 0755 codex-rs/target/release/codex /usr/local/bin/codex
+sudo install -m 0755 codex-rs/target/release/codex-code-mode-host /usr/local/bin/codex-code-mode-host
+```
+
+Finally, update the fork remote:
+
+```shell
+git push origin main --force-with-lease
 ```
 
 ## Quickstart
