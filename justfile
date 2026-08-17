@@ -2,18 +2,183 @@ set working-directory := "codex-rs"
 set positional-arguments
 export CODEX_REPO_ROOT := justfile_directory()
 export JUST_SHELL := justfile_directory() / "scripts/just-shell.py"
+
 set shell := ["python3", "-c", 'import os, runpy; runpy.run_path(os.environ["JUST_SHELL"], run_name="__main__")']
 set windows-shell := ["python", "-c", 'import os, runpy; runpy.run_path(os.environ["JUST_SHELL"], run_name="__main__")']
 
-rust_min_stack := "8388608" # 8 MiB
+rust_min_stack := "8388608"
 python := if os_family() == "windows" { "python" } else { "python3" }
 
 # Display help
 help:
     just -l
 
+# Rebase the current branch onto upstream/main after creating a backup.
+[no-cd]
+rebase-upstream:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+
+    git_dir="$(git rev-parse --git-dir)"
+    if [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+        echo "A rebase is already in progress."
+        echo "Run 'just rebase-status' to inspect it."
+        exit 1
+    fi
+
+    if ! git remote get-url upstream >/dev/null 2>&1; then
+        echo "Remote 'upstream' is not configured."
+        exit 1
+    fi
+
+    branch="$(git branch --show-current)"
+    if [ -z "$branch" ]; then
+        echo "Detached HEAD; check out a branch before rebasing onto upstream/main."
+        exit 1
+    fi
+
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "Worktree is not clean. Commit, stash, or discard changes before rebasing."
+        git status --short
+        exit 1
+    fi
+
+    echo "Fetching origin and upstream..."
+    git fetch --multiple origin upstream
+
+    backup_branch="backup/${branch}-before-upstream-rebase-$(date +%Y%m%d-%H%M%S)"
+    git branch "$backup_branch" "$branch"
+    echo "Created backup branch: $backup_branch"
+    echo "Rebasing $branch onto upstream/main..."
+
+    if git rebase upstream/main; then
+        echo "Rebase complete."
+    else
+        echo
+        echo "Rebase stopped due to conflicts."
+        echo "Unresolved files:"
+        git diff --name-only --diff-filter=U || true
+        echo
+        echo "Resolve and stage files, then run: git rebase --continue"
+        echo "To inspect: git status"
+        echo "To abort: git rebase --abort"
+        exit 1
+    fi
+
+[no-cd]
+rebase-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+
+    git_dir="$(git rev-parse --git-dir)"
+    branch="$(git branch --show-current)"
+    branch="${branch:-DETACHED}"
+
+    if [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+        echo "Rebase in progress on branch $branch."
+        unresolved="$(git diff --name-only --diff-filter=U || true)"
+        if [ -n "$unresolved" ]; then
+            echo "Unresolved files:"
+            printf '%s\n' "$unresolved"
+        else
+            echo "No unresolved files currently reported."
+        fi
+        echo
+        git status --short --branch
+        echo
+        echo "Next: resolve and stage files, then run 'git rebase --continue', or run 'git rebase --abort'."
+    else
+        echo "No rebase in progress on branch $branch."
+        git status --short --branch
+    fi
+
+[no-cd]
+rebase-continue:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+    git rebase --continue
+
+[no-cd]
+rebase-abort:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+    git rebase --abort
+
+# Show the full fork-maintenance audit flow for a pre-rebase backup branch.
+[no-cd]
+audit-fork backup_branch="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+
+    git_dir="$(git rev-parse --git-dir)"
+    if [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+        echo "A rebase is in progress. Finish or abort it before auditing the fork."
+        exit 1
+    fi
+
+    branch="$(git branch --show-current)"
+    if [ -z "$branch" ]; then
+        echo "Detached HEAD; check out the rebased branch before auditing the fork."
+        exit 1
+    fi
+
+    selected_backup="${1:-}"
+    if [ -z "$selected_backup" ]; then
+        selected_backup="$(git for-each-ref --sort=-refname --count=1 --format='%(refname:short)' "refs/heads/backup/${branch}-before-upstream-rebase-*")"
+    fi
+    if [ -z "$selected_backup" ]; then
+        echo "No pre-rebase backup found for $branch."
+        echo "Pass one explicitly: just audit-fork backup/<branch>-before-upstream-rebase-<timestamp>"
+        exit 1
+    fi
+    if ! git show-ref --verify --quiet "refs/heads/$selected_backup"; then
+        echo "Backup branch does not exist: $selected_backup"
+        exit 1
+    fi
+    if ! git rev-parse --verify --quiet upstream/main >/dev/null; then
+        echo "Remote branch 'upstream/main' is not available."
+        exit 1
+    fi
+
+    old_base="$(git merge-base "$selected_backup" upstream/main)"
+    echo "Full fork-maintenance audit for $branch"
+    echo "Pre-rebase backup: $selected_backup"
+    echo
+    echo "1. Review and consolidate the complete local stack when useful:"
+    echo "   git rebase -i upstream/main"
+    echo "2. Drop the previous 'Stamp workspace with local version' commit while consolidating."
+    echo "3. Compare the old and current fork stacks:"
+    echo "   git range-diff $old_base..$selected_backup upstream/main..HEAD"
+    echo "4. Run focused tests, the complete suite, lint fixes, and formatting."
+    echo "5. Run 'just set-local-version' and commit the two version files last."
+    echo "6. Build the CLI and code-mode host, then verify the CLI's reported version."
+    echo "7. Update the fork remote when the audit is complete:"
+    echo "   git push origin $branch --force-with-lease"
+
+# Stamp local builds with the included upstream release and commit.
+[no-cd]
+set-local-version *args:
+    {{ justfile_directory() }}/scripts/set-local-version.py "$@"
+
+# Build the local CLI and code-mode host with verified V8 artifacts.
+[no-cd]
+build-local:
+    {{ justfile_directory() }}/scripts/build-local.py
+
 # `codex`
+
 alias c := codex
+
 codex *args:
     cargo run --bin codex -- {args}
 
@@ -82,6 +247,7 @@ install:
 #
 # Run `cargo install --locked cargo-nextest` if you don't have it installed.
 # Prefer this for routine local runs. Workspace crate features are banned, so
+
 # there should be no need to add `--all-features`.
 [unix]
 test *args:
@@ -92,6 +258,7 @@ test *args:
     $env:RUST_MIN_STACK = "{{ rust_min_stack }}"; $env:NEXTEST_PROFILE = "local"; cargo nextest run --no-fail-fast @($args | Select-Object -Skip 1)
 
 # Run from the repository root so scripts that resolve paths from `cwd` see
+
 # the same layout they use in GitHub Actions.
 [no-cd]
 test-github-scripts:
@@ -111,6 +278,7 @@ bench-e2e:
     bazel test --compilation_mode=opt --cache_test_results=no --test_output=streamed //codex-rs:e2e-benchmarks
 
 # Run Bazel-backed end-to-end macrobenchmarks once per case with release-like
+
 # Rust cfg paths but fastbuild codegen.
 bench-e2e-smoke:
     # Avoid optimizer cost because smoke runs only check that benchmarks work.
@@ -120,6 +288,7 @@ bench-e2e-smoke:
 
 # Build and run Codex from source using Bazel.
 # On Unix, use `[no-cd]` and `--run_under="cd $PWD &&"` to ensure Bazel runs
+
 # the command in the current working directory.
 [no-cd]
 [unix]
