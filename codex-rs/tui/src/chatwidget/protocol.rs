@@ -330,9 +330,16 @@ impl ChatWidget {
                     );
                 }
                 self.last_non_retry_error = None;
+                let finished_at = notification
+                    .turn
+                    .completed_at
+                    .and_then(|completed_at| DateTime::<Utc>::from_timestamp(completed_at, 0))
+                    .map(|completed_at| completed_at.with_timezone(&Local))
+                    .unwrap_or_else(Local::now);
                 self.on_task_complete(
                     last_agent_message.map(|(_, _, text)| text),
                     notification.turn.duration_ms,
+                    finished_at,
                     replay_kind.is_some(),
                 );
             }

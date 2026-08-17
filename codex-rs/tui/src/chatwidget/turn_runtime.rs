@@ -114,6 +114,7 @@ impl ChatWidget {
         &mut self,
         last_agent_message: Option<String>,
         duration_ms: Option<i64>,
+        finished_at: DateTime<Local>,
         from_replay: bool,
     ) {
         self.input_queue.submit_pending_steers_after_interrupt = false;
@@ -173,6 +174,7 @@ impl ChatWidget {
                 };
                 self.add_to_history(history_cell::FinalMessageSeparator::new(
                     elapsed_seconds,
+                    finished_at,
                     runtime_metrics,
                 ));
             }

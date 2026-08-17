@@ -10,6 +10,8 @@ use crate::line_truncation::line_width;
 use crate::render::highlight::MAX_HIGHLIGHT_LINE_BYTES;
 use crate::session_state::ThreadSessionState;
 use crate::wrapping::word_wrap_lines;
+use chrono::Local;
+use chrono::TimeZone;
 use codex_app_server_protocol::AskForApproval;
 use codex_app_server_protocol::McpAuthStatus;
 use codex_config::types::McpServerConfig;
@@ -629,7 +631,7 @@ fn final_message_separator_hides_short_worked_label_and_includes_runtime_metrics
         turn_ttft_ms: 0,
         turn_ttfm_ms: 0,
     };
-    let cell = FinalMessageSeparator::new(Some(12), Some(summary));
+    let cell = FinalMessageSeparator::new(Some(12), Local::now(), Some(summary));
     let rendered = render_lines(&cell.display_lines(/*width*/ 600));
 
     assert_eq!(rendered.len(), 1);
@@ -658,11 +660,16 @@ fn runtime_metrics_label_rounds_fractional_tbt_milliseconds() {
 
 #[test]
 fn final_message_separator_includes_worked_label_after_one_minute() {
-    let cell = FinalMessageSeparator::new(Some(61), /*runtime_metrics*/ None);
-    let rendered = render_lines(&cell.display_lines(/*width*/ 200));
+    let finished_at = Local
+        .with_ymd_and_hms(2026, 8, 17, 14, 32, 0)
+        .single()
+        .expect("valid local time");
+    let cell = FinalMessageSeparator::new(Some(61), finished_at, /*runtime_metrics*/ None);
 
-    assert_eq!(rendered.len(), 1);
-    assert!(rendered[0].contains("Worked for"));
+    assert_eq!(
+        render_lines(&cell.raw_lines()),
+        vec!["Worked for 1m 01s, finished at 14:32 on 17 Aug 2026"]
+    );
 }
 
 #[test]

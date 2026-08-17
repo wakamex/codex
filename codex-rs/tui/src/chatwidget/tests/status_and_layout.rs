@@ -3333,7 +3333,10 @@ async fn completed_turn_refreshes_estimated_thread_cost() {
     ));
 
     chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
+        /*last_agent_message*/ None,
+        /*duration_ms*/ None,
+        Local::now(),
+        /*from_replay*/ false,
     );
 
     let request_id = std::iter::from_fn(|| rx.try_recv().ok())
@@ -3385,7 +3388,10 @@ async fn completed_turn_refreshes_credits_only_terminal_title() {
     ));
 
     chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
+        /*last_agent_message*/ None,
+        /*duration_ms*/ None,
+        Local::now(),
+        /*from_replay*/ false,
     );
 
     let request_id = std::iter::from_fn(|| rx.try_recv().ok())
@@ -4519,7 +4525,10 @@ async fn runtime_metrics_websocket_timing_logs_and_final_separator_sums_totals()
     assert!(second_log.contains("TTFT: 80ms (iapi)"));
 
     chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
+        /*last_agent_message*/ None,
+        /*duration_ms*/ None,
+        Local::now(),
+        /*from_replay*/ false,
     );
     let mut final_separator = None;
     while let Ok(event) = rx.try_recv() {

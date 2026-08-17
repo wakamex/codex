@@ -669,7 +669,10 @@ async fn continuous_loop_does_not_submit_on_replayed_turn_complete() {
     let _ = next_submit_op(&mut op_rx);
 
     chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ true,
+        /*last_agent_message*/ None,
+        /*duration_ms*/ None,
+        Local::now(),
+        /*from_replay*/ true,
     );
 
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));

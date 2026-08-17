@@ -1,4 +1,5 @@
 use super::*;
+use chrono::TimeZone;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
@@ -802,7 +803,10 @@ async fn unified_exec_end_after_task_complete_is_suppressed() {
     drain_insert_history(&mut rx);
 
     chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
+        /*last_agent_message*/ None,
+        /*duration_ms*/ None,
+        Local::now(),
+        /*from_replay*/ false,
     );
     end_exec(&mut chat, begin, "", "", /*exit_code*/ 0);
 
@@ -818,7 +822,10 @@ async fn unified_exec_interaction_after_task_complete_is_suppressed() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.on_task_started();
     chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
+        /*last_agent_message*/ None,
+        /*duration_ms*/ None,
+        Local::now(),
+        /*from_replay*/ false,
     );
 
     terminal_interaction(&mut chat, "call-1", "proc-1", "ls\n");
@@ -899,7 +906,16 @@ async fn final_worked_for_uses_cumulative_turn_duration_snapshot() {
             "Final response.",
             Some(MessagePhase::FinalAnswer),
         );
-        handle_turn_completed(&mut chat, "turn-1", duration_ms);
+        let finished_at = Local
+            .with_ymd_and_hms(2026, 8, 17, 14, 32, 0)
+            .single()
+            .expect("valid local time");
+        chat.on_task_complete(
+            /*last_agent_message*/ None,
+            duration_ms,
+            finished_at,
+            /*from_replay*/ false,
+        );
 
         let cells = drain_insert_history(&mut rx);
         let combined = cells
@@ -907,7 +923,7 @@ async fn final_worked_for_uses_cumulative_turn_duration_snapshot() {
             .map(|lines| lines_to_single_string(lines))
             .collect::<String>();
         assert!(
-            combined.contains("Worked for 2m 05s"),
+            combined.contains("Worked for 2m 05s, finished at 14:32 on 17 Aug 2026"),
             "expected final separator to use cumulative turn duration, got:\n{combined}"
         );
         assert_chatwidget_snapshot!("final_worked_for_uses_cumulative_turn_duration", combined);

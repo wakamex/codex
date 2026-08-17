@@ -1,6 +1,8 @@
 //! Turn separators and runtime-metrics labels for transcript history.
 
 use super::*;
+use chrono::DateTime;
+use chrono::Local;
 
 #[derive(Debug)]
 /// A visual divider between turns, optionally showing how long the assistant "worked for".
@@ -10,29 +12,38 @@ use super::*;
 /// divider.
 pub struct FinalMessageSeparator {
     elapsed_seconds: Option<u64>,
+    finished_at: DateTime<Local>,
     runtime_metrics: Option<RuntimeMetricsSummary>,
 }
 impl FinalMessageSeparator {
     /// Creates a separator; completed turns should pass protocol turn duration when available.
     pub(crate) fn new(
         elapsed_seconds: Option<u64>,
+        finished_at: DateTime<Local>,
         runtime_metrics: Option<RuntimeMetricsSummary>,
     ) -> Self {
         Self {
             elapsed_seconds,
+            finished_at,
             runtime_metrics,
         }
+    }
+
+    fn worked_label(&self) -> Option<String> {
+        self.elapsed_seconds
+            .filter(|seconds| *seconds > 60)
+            .map(crate::status_indicator_widget::fmt_elapsed_compact)
+            .map(|elapsed_seconds| {
+                let finished_at = self.finished_at.format("%H:%M on %-d %b %Y");
+                format!("Worked for {elapsed_seconds}, finished at {finished_at}")
+            })
     }
 }
 impl HistoryCell for FinalMessageSeparator {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut label_parts = Vec::new();
-        if let Some(elapsed_seconds) = self
-            .elapsed_seconds
-            .filter(|seconds| *seconds > 60)
-            .map(crate::status_indicator_widget::fmt_elapsed_compact)
-        {
-            label_parts.push(format!("Worked for {elapsed_seconds}"));
+        if let Some(worked_label) = self.worked_label() {
+            label_parts.push(worked_label);
         }
         if let Some(metrics_label) = self.runtime_metrics.and_then(runtime_metrics_label) {
             label_parts.push(metrics_label);
@@ -55,12 +66,8 @@ impl HistoryCell for FinalMessageSeparator {
 
     fn raw_lines(&self) -> Vec<Line<'static>> {
         let mut label_parts = Vec::new();
-        if let Some(elapsed_seconds) = self
-            .elapsed_seconds
-            .filter(|seconds| *seconds > 60)
-            .map(crate::status_indicator_widget::fmt_elapsed_compact)
-        {
-            label_parts.push(format!("Worked for {elapsed_seconds}"));
+        if let Some(worked_label) = self.worked_label() {
+            label_parts.push(worked_label);
         }
         if let Some(metrics_label) = self.runtime_metrics.and_then(runtime_metrics_label) {
             label_parts.push(metrics_label);
