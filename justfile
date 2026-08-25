@@ -175,6 +175,12 @@ set-local-version *args:
 build-local:
     {{ justfile_directory() }}/scripts/build-local.py
 
+# Install previously built local binaries, preserving one rollback copy.
+[no-cd]
+[unix]
+install-local *args:
+    {{ justfile_directory() }}/scripts/install-local.py "$@"
+
 # `codex`
 
 alias c := codex
