@@ -6194,6 +6194,14 @@ class ThreadUnarchivedNotification(BaseModel):
     thread_id: Annotated[str, Field(alias="threadId")]
 
 
+class ThreadUnloadStatus(Enum):
+    unloaded = "unloaded"
+    not_loaded = "notLoaded"
+    active = "active"
+    has_subscribers = "hasSubscribers"
+    unloading = "unloading"
+
+
 class ThreadUnsubscribeParams(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
