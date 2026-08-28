@@ -503,8 +503,16 @@ pub(crate) fn finalize_tool_router(
 }
 
 fn disabled_model_tools_router(turn_context: &TurnContext) -> Option<ToolRouter> {
-    (!turn_context.config.model_tools_enabled)
-        .then(|| ToolRouter::from_parts(ToolRegistry::default(), Vec::new()))
+    (!turn_context.config.model_tools_enabled).then(|| {
+        ToolRouter::from_parts(
+            ToolRegistry::default(),
+            Vec::new(),
+            ToolMode::Direct,
+            BTreeMap::new(),
+            /*tool_namespaces_info*/ None,
+            &[],
+        )
+    })
 }
 
 fn apply_direct_model_only_namespace_overrides(
