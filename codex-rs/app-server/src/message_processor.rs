@@ -1149,6 +1149,9 @@ impl MessageProcessor {
                 }
                 Ok(response)
             }
+            ClientRequest::ThreadUnload { params, .. } => {
+                self.thread_processor.thread_unload(params).await
+            }
             ClientRequest::ThreadResume { params, .. } => {
                 self.thread_processor
                     .thread_resume(

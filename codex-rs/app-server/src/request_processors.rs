@@ -291,6 +291,9 @@ use codex_app_server_protocol::ThreadTurnsListResponse;
 use codex_app_server_protocol::ThreadUnarchiveParams;
 use codex_app_server_protocol::ThreadUnarchiveResponse;
 use codex_app_server_protocol::ThreadUnarchivedNotification;
+use codex_app_server_protocol::ThreadUnloadParams;
+use codex_app_server_protocol::ThreadUnloadResponse;
+use codex_app_server_protocol::ThreadUnloadStatus;
 use codex_app_server_protocol::ThreadUnsubscribeParams;
 use codex_app_server_protocol::ThreadUnsubscribeResponse;
 use codex_app_server_protocol::ThreadUnsubscribeStatus;
@@ -695,6 +698,7 @@ mod thread_goal_processor;
 mod thread_lifecycle;
 mod thread_resume_redaction;
 mod thread_summary;
+mod thread_unload;
 
 use self::config_errors::*;
 use self::request_errors::*;

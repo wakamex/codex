@@ -129,6 +129,13 @@ pub(super) enum ThreadShutdownResult {
     TimedOut,
 }
 
+pub(super) enum ThreadUnloadResult {
+    Complete,
+    Replaced,
+    SubmitFailed,
+    TimedOut,
+}
+
 pub(super) enum EnsureConversationListenerResult {
     Attached,
     ConnectionClosed,
@@ -387,7 +394,7 @@ pub(super) async fn ensure_listener_task_running(
                         }
                         pending_thread_unloads.insert(conversation_id);
                     }
-                    unload_thread_without_subscribers(
+                    spawn_unload_thread_without_subscribers(
                         thread_manager.clone(),
                         outgoing_for_task.clone(),
                         pending_thread_unloads.clone(),
@@ -395,8 +402,7 @@ pub(super) async fn ensure_listener_task_running(
                         thread_watch_manager.clone(),
                         conversation_id,
                         conversation.clone(),
-                    )
-                    .await;
+                    );
                     break;
                 }
             }
@@ -419,7 +425,7 @@ pub(super) async fn wait_for_thread_shutdown(thread: &Arc<CodexThread>) -> Threa
     }
 }
 
-pub(super) async fn unload_thread_without_subscribers(
+pub(super) fn spawn_unload_thread_without_subscribers(
     thread_manager: Arc<ThreadManager>,
     outgoing: Arc<OutgoingMessageSender>,
     pending_thread_unloads: Arc<Mutex<HashSet<ThreadId>>>,
@@ -428,6 +434,30 @@ pub(super) async fn unload_thread_without_subscribers(
     thread_id: ThreadId,
     thread: Arc<CodexThread>,
 ) {
+    tokio::spawn(async move {
+        unload_thread(
+            thread_manager,
+            outgoing,
+            pending_thread_unloads,
+            thread_state_manager,
+            thread_watch_manager,
+            thread_id,
+            thread,
+        )
+        .await;
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn unload_thread(
+    thread_manager: Arc<ThreadManager>,
+    outgoing: Arc<OutgoingMessageSender>,
+    pending_thread_unloads: Arc<Mutex<HashSet<ThreadId>>>,
+    thread_state_manager: ThreadStateManager,
+    thread_watch_manager: ThreadWatchManager,
+    thread_id: ThreadId,
+    thread: Arc<CodexThread>,
+) -> ThreadUnloadResult {
     info!("thread {thread_id} has no subscribers and is idle; shutting down");
 
     // Any pending app-server -> client requests for this thread can no longer be
@@ -437,20 +467,18 @@ pub(super) async fn unload_thread_without_subscribers(
         .await;
     thread_state_manager.remove_thread_state(thread_id).await;
 
-    tokio::spawn(async move {
-        match wait_for_thread_shutdown(&thread).await {
-            ThreadShutdownResult::Complete => {
-                // A delayed unload can finish after thread/revert replaces this runtime under
-                // the same thread ID. Only the runtime that scheduled this unload may remove it.
-                if thread_manager
-                    .remove_thread_if_matches(&thread_id, &thread)
-                    .await
-                    .is_none()
-                {
-                    info!("thread {thread_id} was replaced or removed before teardown finalized");
-                    pending_thread_unloads.lock().await.remove(&thread_id);
-                    return;
-                }
+    let result = match wait_for_thread_shutdown(&thread).await {
+        ThreadShutdownResult::Complete => {
+            // A delayed unload can finish after thread/revert replaces this runtime under
+            // the same thread ID. Only the runtime that scheduled this unload may remove it.
+            if thread_manager
+                .remove_thread_if_matches(&thread_id, &thread)
+                .await
+                .is_none()
+            {
+                info!("thread {thread_id} was replaced or removed before teardown finalized");
+                ThreadUnloadResult::Replaced
+            } else {
                 thread_watch_manager
                     .remove_thread(&thread_id.to_string())
                     .await;
@@ -460,18 +488,20 @@ pub(super) async fn unload_thread_without_subscribers(
                 outgoing
                     .send_server_notification(ServerNotification::ThreadClosed(notification))
                     .await;
-                pending_thread_unloads.lock().await.remove(&thread_id);
-            }
-            ThreadShutdownResult::SubmitFailed => {
-                pending_thread_unloads.lock().await.remove(&thread_id);
-                warn!("failed to submit Shutdown to thread {thread_id}");
-            }
-            ThreadShutdownResult::TimedOut => {
-                pending_thread_unloads.lock().await.remove(&thread_id);
-                warn!("thread {thread_id} shutdown timed out; leaving thread loaded");
+                ThreadUnloadResult::Complete
             }
         }
-    });
+        ThreadShutdownResult::SubmitFailed => {
+            warn!("failed to submit Shutdown to thread {thread_id}");
+            ThreadUnloadResult::SubmitFailed
+        }
+        ThreadShutdownResult::TimedOut => {
+            warn!("thread {thread_id} shutdown timed out; leaving thread loaded");
+            ThreadUnloadResult::TimedOut
+        }
+    };
+    pending_thread_unloads.lock().await.remove(&thread_id);
+    result
 }
 
 #[allow(clippy::too_many_arguments)]

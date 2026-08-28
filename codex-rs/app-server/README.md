@@ -218,6 +218,7 @@ Example with notification opt-out:
 - `thread/archive` — move a thread’s rollout file into the archived directory and attempt to move any spawned descendant thread rollout files; returns `{}` on success and emits `thread/archived` for each archived thread.
 - `thread/delete` — hard-delete an active or archived thread and any spawned descendant threads; returns `{}` on success and emits `thread/deleted` for each deleted thread.
 - `thread/unsubscribe` — unsubscribe this connection from thread turn/item events. If this was the last subscriber, the server keeps the thread loaded and unloads it only after it has had no subscribers and no thread activity for 60 seconds by default (configured by `thread_unload_delay_secs`), runs `SessionEnd` hooks, then emits `thread/closed`.
+- `thread/unload` - experimental; immediately release one idle, unsubscribed thread runtime after graceful shutdown and rollout flush. The durable rollout is preserved, active or subscribed threads are left unchanged, and the operation never cascades to spawned descendants.
 - `thread/name/set` — set or update a thread’s user-facing name for either a loaded thread or a persisted rollout; returns `{}` on success and emits `thread/name/updated` to initialized, opted-in clients. Thread names are not required to be unique; name lookups resolve to the most recently updated thread.
 - `thread/unarchive` — move an archived rollout file back into the sessions directory; returns the restored `thread` on success and emits `thread/unarchived`.
 - `thread/compact/start` — trigger conversation history compaction for a thread; returns `{}` immediately while progress streams through standard turn/item notifications. Parent-owned Multi-Agent V2 subagents reject direct compaction requests.
@@ -700,6 +701,25 @@ Later, after the idle unload timeout:
     "status": { "type": "notLoaded" }
 } }
 { "method": "thread/closed", "params": { "threadId": "thr_123" } }
+```
+
+### Example: Unload an idle thread immediately
+
+`thread/unload` is the explicit ownership-handoff counterpart to delayed unload after `thread/unsubscribe`. Enable `capabilities.experimentalApi`, unsubscribe the current connection, then call it when the rollout writer must be released immediately for another app-server or Codex process.
+
+The response status is one of:
+
+- `unloaded` when graceful shutdown completed and the rollout writer was closed before the response.
+- `notLoaded` when this app-server has no loaded runtime for the thread. Repeated requests are idempotent.
+- `active` when the thread has live activity and was left unchanged.
+- `hasSubscribers` when at least one connection is subscribed and the thread was left unchanged.
+- `unloading` when delayed teardown already owns the runtime. Wait for `thread/closed` or retry.
+
+Shutdown submission failure and timeout are returned as JSON-RPC errors. The method does not interrupt work, remove subscriptions, archive or delete the rollout, or unload descendants. Successful unload flushes accepted rollout records, runs normal shutdown and root-only `SessionEnd` hooks, closes the writer, emits `thread/status/changed` with `notLoaded`, emits `thread/closed`, and then returns. A later `thread/resume` reconstructs the same durable history. Ephemeral threads have no durable rollout to resume.
+
+```json
+{ "method": "thread/unload", "id": 23, "params": { "threadId": "thr_123" } }
+{ "id": 23, "result": { "status": "unloaded" } }
 ```
 
 ### Example: Read a thread
