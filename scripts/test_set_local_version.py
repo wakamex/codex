@@ -52,6 +52,53 @@ class LatestReleaseVersionTest(unittest.TestCase):
         self.assertFalse(represented)
 
 
+class ForkSourceCommitTest(unittest.TestCase):
+    def test_uses_source_commit_for_normal_commit(self) -> None:
+        with patch.object(SET_LOCAL_VERSION, "git", return_value="Implement feature"):
+            source_commit = SET_LOCAL_VERSION.fork_source_commit(
+                Path("/repo"), "source"
+            )
+
+        self.assertEqual(source_commit, "source")
+
+    def test_uses_parent_of_version_stamp_commit(self) -> None:
+        with patch.object(
+            SET_LOCAL_VERSION,
+            "git",
+            side_effect=[
+                SET_LOCAL_VERSION.VERSION_STAMP_COMMIT_SUBJECT,
+                "source second-parent",
+            ],
+        ):
+            source_commit = SET_LOCAL_VERSION.fork_source_commit(Path("/repo"), "stamp")
+
+        self.assertEqual(source_commit, "source")
+
+    def test_local_version_identifies_upstream_and_fork_commits(self) -> None:
+        version = SET_LOCAL_VERSION.local_version(
+            "0.151.0-alpha.8",
+            "upstream",
+            "92f887ec35",
+            "73f7363d5d",
+        )
+
+        self.assertEqual(
+            version,
+            "0.151.0-alpha.8+upstream.92f887ec35.fork.73f7363d5d",
+        )
+
+
+class WorktreeCleanlinessTest(unittest.TestCase):
+    def test_rejects_any_dirty_path(self) -> None:
+        with patch.object(
+            SET_LOCAL_VERSION,
+            "git",
+            return_value="?? local-output.txt",
+        ):
+            with self.assertRaisesRegex(RuntimeError, "dirty worktree"):
+                SET_LOCAL_VERSION.ensure_clean_worktree(Path("/repo"))
+
+
 class WorkspaceVersionUpdateTest(unittest.TestCase):
     def test_replace_workspace_version_preserves_crlf(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
