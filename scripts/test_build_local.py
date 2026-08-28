@@ -3,8 +3,8 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
-from unittest.mock import MagicMock
 from unittest.mock import patch
 
 
@@ -50,20 +50,70 @@ class WorktreeValidationTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "dirty worktree"):
                 BUILD_LOCAL.ensure_clean_worktree(Path("/repo"))
 
-    def test_checks_local_version_with_repository_script(self) -> None:
-        run = MagicMock()
-        with patch.object(BUILD_LOCAL.subprocess, "run", run):
-            BUILD_LOCAL.verify_local_version(Path("/repo"))
+    def test_temporary_local_version_restores_version_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            codex_rs = repo / "codex-rs"
+            codex_rs.mkdir()
+            cargo_toml = codex_rs / "Cargo.toml"
+            cargo_lock = codex_rs / "Cargo.lock"
+            cargo_toml.write_text("original manifest\n")
+            cargo_lock.write_text("original lockfile\n")
+            original = {
+                cargo_toml: cargo_toml.read_bytes(),
+                cargo_lock: cargo_lock.read_bytes(),
+            }
 
-        run.assert_called_once_with(
-            [
-                BUILD_LOCAL.sys.executable,
-                Path("/repo/scripts/set-local-version.py"),
-                "--check",
-            ],
-            cwd=Path("/repo"),
-            check=True,
-        )
+            def stamp(*_args, **_kwargs):
+                cargo_toml.write_text("stamped manifest\n")
+                cargo_lock.write_text("stamped lockfile\n")
+                return subprocess.CompletedProcess([], 0)
+
+            with patch.object(BUILD_LOCAL.subprocess, "run", side_effect=stamp):
+                with BUILD_LOCAL.temporary_local_version(repo):
+                    self.assertEqual(
+                        {
+                            cargo_toml: cargo_toml.read_text(),
+                            cargo_lock: cargo_lock.read_text(),
+                        },
+                        {
+                            cargo_toml: "stamped manifest\n",
+                            cargo_lock: "stamped lockfile\n",
+                        },
+                    )
+
+            self.assertEqual(
+                {path: path.read_bytes() for path in original},
+                original,
+            )
+
+    def test_temporary_local_version_restores_after_stamp_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            codex_rs = repo / "codex-rs"
+            codex_rs.mkdir()
+            cargo_toml = codex_rs / "Cargo.toml"
+            cargo_lock = codex_rs / "Cargo.lock"
+            cargo_toml.write_text("original manifest\n")
+            cargo_lock.write_text("original lockfile\n")
+            original = {
+                cargo_toml: cargo_toml.read_bytes(),
+                cargo_lock: cargo_lock.read_bytes(),
+            }
+
+            def fail_stamp(*_args, **_kwargs):
+                cargo_toml.write_text("partial manifest\n")
+                raise subprocess.CalledProcessError(1, ["set-local-version.py"])
+
+            with patch.object(BUILD_LOCAL.subprocess, "run", side_effect=fail_stamp):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    with BUILD_LOCAL.temporary_local_version(repo):
+                        pass
+
+            self.assertEqual(
+                {path: path.read_bytes() for path in original},
+                original,
+            )
 
 
 if __name__ == "__main__":

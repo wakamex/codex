@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Build the local Codex CLI and its code-mode host sidecar."""
 
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import shlex
 import subprocess
 import sys
+from typing import Iterator
 
 from codex_package.targets import TARGET_SPECS
 from codex_package.v8 import resolve_codex_v8_cargo_env
@@ -70,18 +72,29 @@ def ensure_clean_worktree(repo: Path) -> None:
         )
 
 
-def verify_local_version(repo: Path) -> None:
-    subprocess.run(
-        [sys.executable, repo / "scripts" / "set-local-version.py", "--check"],
-        cwd=repo,
-        check=True,
-    )
+@contextmanager
+def temporary_local_version(repo: Path) -> Iterator[None]:
+    version_files = [repo / "codex-rs" / "Cargo.toml", repo / "codex-rs" / "Cargo.lock"]
+    snapshots = [
+        (path, path.read_bytes(), path.stat().st_mode) for path in version_files
+    ]
+    try:
+        subprocess.run(
+            [sys.executable, repo / "scripts" / "set-local-version.py"],
+            cwd=repo,
+            check=True,
+        )
+        yield
+    finally:
+        for path, contents, mode in snapshots:
+            path.write_bytes(contents)
+            os.chmod(path, mode)
+        print("Restored local version files.", flush=True)
 
 
 def main() -> int:
     repo = repo_root()
     ensure_clean_worktree(repo)
-    verify_local_version(repo)
     codex_rs = repo / "codex-rs"
     spec = TARGET_SPECS[rust_host_target()]
     env = {**os.environ, **resolve_codex_v8_cargo_env(spec)}
@@ -89,6 +102,7 @@ def main() -> int:
         "cargo",
         "build",
         "--release",
+        "--locked",
         "-p",
         "codex-cli",
         "--bin",
@@ -99,8 +113,9 @@ def main() -> int:
         "codex-code-mode-host",
     ]
 
-    print(f"+ {shlex.join(command)}", flush=True)
-    subprocess.run(command, cwd=codex_rs, check=True, env=env)
+    with temporary_local_version(repo):
+        print(f"+ {shlex.join(command)}", flush=True)
+        subprocess.run(command, cwd=codex_rs, check=True, env=env)
 
     output_dir = target_dir(codex_rs) / "release"
     outputs = [

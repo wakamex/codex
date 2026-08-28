@@ -60,16 +60,10 @@ def parse_args() -> argparse.Namespace:
         default="upstream",
         help="SemVer build metadata prefix before the commit SHA (default: upstream).",
     )
-    output_mode = parser.add_mutually_exclusive_group()
-    output_mode.add_argument(
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the computed version without modifying files.",
-    )
-    output_mode.add_argument(
-        "--check",
-        action="store_true",
-        help="Verify that the workspace already has the computed version.",
     )
     parser.add_argument(
         "--skip-lockfile",
@@ -352,16 +346,6 @@ def main() -> int:
     print(f"Target local version:     {target_version}")
 
     if args.dry_run:
-        return 0
-
-    if args.check:
-        if current_version != target_version:
-            raise RuntimeError(
-                f"Workspace version is stale: expected {target_version}, "
-                f"found {current_version}. Run `just set-local-version` and "
-                "commit the version files before building."
-            )
-        print("Workspace version matches the source commits.")
         return 0
 
     ensure_clean_worktree(repo)

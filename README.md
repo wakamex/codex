@@ -63,8 +63,8 @@ The repository includes helpers for maintaining and building the fork:
 - `just rebase-upstream` rebases the current branch onto `upstream/main` after creating a backup branch
 - `just rebase-status`, `just rebase-continue`, and `just rebase-abort` are convenience wrappers for an in-progress rebase
 - `just audit-fork` starts the separate full fork-maintenance audit flow using the latest pre-rebase backup
-- `just set-local-version` stamps the Rust workspace with the latest included upstream release, upstream commit, and substantive fork commit
-- `just build-local` rejects dirty or stale source trees, downloads and verifies the matching V8 artifacts, then builds the current CLI and code-mode host
+- `just set-local-version --dry-run` previews the version derived from the latest included upstream release, upstream commit, and fork commit
+- `just build-local` rejects dirty source trees, applies that version temporarily, downloads and verifies the matching V8 artifacts, builds the current CLI and code-mode host, and restores the version files
 
 ### Rebase and resolve conflicts
 
@@ -81,9 +81,7 @@ return to the pre-rebase state with `git rebase --abort`. These native commands 
 if the justfile itself is being replayed. The helper creates and prints a timestamped backup branch
 before rewriting anything.
 
-When `git rebase` completes, this flow is done. Stack consolidation, range-diff review, the complete
-test suite, linting, version stamping, and release builds are part of the separate audit flow below.
-They are not follow-up steps of `just rebase-upstream` or conflict resolution.
+When `git rebase` completes, this flow is done. Stack consolidation, range-diff review, the complete test suite, linting, and release builds are part of the separate audit flow below. They are not follow-up steps of `just rebase-upstream` or conflict resolution.
 
 ### Full fork-maintenance audit
 
@@ -113,16 +111,13 @@ CODEX_REPO_ROOT="$PWD" uv run python scripts/test_build_local.py
 just test
 ```
 
-Run scoped `just fix -p <crate>` checks for the affected Rust crates. Then format the final stack and recreate the version stamp as its last commit. The stamp records the newest upstream commit and the preceding substantive fork commit, avoiding a circular reference to the stamp commit itself:
+Run scoped `just fix -p <crate>` checks for the affected Rust crates, then format the final stack:
 
 ```shell
 just fmt
-just set-local-version
-git add codex-rs/Cargo.toml codex-rs/Cargo.lock
-git commit -m "Stamp workspace with local version"
 ```
 
-Build the locally versioned binaries, confirm the CLI's reported version, and install them. `just build-local` rejects any tracked or untracked worktree change and rejects a version stamp that does not match the current upstream and fork source commits:
+Build the locally versioned binaries, confirm the CLI's reported version, and install them. `just build-local` requires a clean tree, temporarily stamps the workspace with the upstream and fork source commits, builds with the lockfile enforced, and restores `Cargo.toml` and `Cargo.lock` before returning. No version-stamp commit is created:
 
 ```shell
 just build-local
