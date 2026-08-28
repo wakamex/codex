@@ -161,16 +161,16 @@ audit-fork backup_branch="":
     echo "   git range-diff $old_base..$selected_backup upstream/main..HEAD"
     echo "4. Run focused tests, the complete suite, lint fixes, and formatting."
     echo "5. Run 'just set-local-version' and commit the two version files last."
-    echo "6. Build the CLI and code-mode host, then verify the CLI's reported version."
+    echo "6. From a clean tree, build the CLI and code-mode host; the build verifies the stamp first."
     echo "7. Update the fork remote when the audit is complete:"
     echo "   git push origin $branch --force-with-lease"
 
-# Stamp local builds with the included upstream release and commit.
+# Stamp local builds with the included upstream release, upstream commit, and fork commit.
 [no-cd]
 set-local-version *args:
     {{ justfile_directory() }}/scripts/set-local-version.py "$@"
 
-# Build the local CLI and code-mode host with verified V8 artifacts.
+# Verify a clean, correctly stamped tree, then build with verified V8 artifacts.
 [no-cd]
 build-local:
     {{ justfile_directory() }}/scripts/build-local.py

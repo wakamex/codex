@@ -63,8 +63,8 @@ The repository includes helpers for maintaining and building the fork:
 - `just rebase-upstream` rebases the current branch onto `upstream/main` after creating a backup branch
 - `just rebase-status`, `just rebase-continue`, and `just rebase-abort` are convenience wrappers for an in-progress rebase
 - `just audit-fork` starts the separate full fork-maintenance audit flow using the latest pre-rebase backup
-- `just set-local-version` stamps the Rust workspace with the latest included upstream release and commit
-- `just build-local` downloads and verifies the matching V8 artifacts, then builds the current CLI and code-mode host
+- `just set-local-version` stamps the Rust workspace with the latest included upstream release, upstream commit, and substantive fork commit
+- `just build-local` rejects dirty or stale source trees, downloads and verifies the matching V8 artifacts, then builds the current CLI and code-mode host
 
 ### Rebase and resolve conflicts
 
@@ -109,12 +109,11 @@ Run the focused tests needed for the fork changes, followed by the complete suit
 
 ```shell
 uv run python scripts/test_set_local_version.py
-uv run python scripts/test_build_local.py
+CODEX_REPO_ROOT="$PWD" uv run python scripts/test_build_local.py
 just test
 ```
 
-Run scoped `just fix -p <crate>` checks for the affected Rust crates. Then format the final stack and
-recreate the version stamp as its last commit:
+Run scoped `just fix -p <crate>` checks for the affected Rust crates. Then format the final stack and recreate the version stamp as its last commit. The stamp records the newest upstream commit and the preceding substantive fork commit, avoiding a circular reference to the stamp commit itself:
 
 ```shell
 just fmt
@@ -123,7 +122,7 @@ git add codex-rs/Cargo.toml codex-rs/Cargo.lock
 git commit -m "Stamp workspace with local version"
 ```
 
-Build the locally versioned binaries, confirm the CLI's reported version, and install them:
+Build the locally versioned binaries, confirm the CLI's reported version, and install them. `just build-local` rejects any tracked or untracked worktree change and rejects a version stamp that does not match the current upstream and fork source commits:
 
 ```shell
 just build-local

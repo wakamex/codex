@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Set the Rust workspace version from the included upstream release and SHA.
+"""Set the Rust workspace version from the included upstream and fork SHAs.
 
 This is intended for local/source builds that should report a release-like
 version instead of the repository's default 0.0.0 development version.
@@ -20,14 +20,15 @@ TAG_RE = re.compile(
     r"(?P<patch>0|[1-9]\d*)"
     r"(?:-(?P<pre>[0-9A-Za-z.-]+))?$"
 )
+VERSION_STAMP_COMMIT_SUBJECT = "Stamp workspace with local version"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Patch codex-rs/Cargo.toml so local builds use the latest local "
-            "rust-v* release represented in the upstream commit included in "
-            "this source tree."
+            "rust-v* release plus the upstream and fork commits represented "
+            "in this source tree."
         )
     )
     parser.add_argument(
@@ -59,20 +60,21 @@ def parse_args() -> argparse.Namespace:
         default="upstream",
         help="SemVer build metadata prefix before the commit SHA (default: upstream).",
     )
-    parser.add_argument(
+    output_mode = parser.add_mutually_exclusive_group()
+    output_mode.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the computed version without modifying files.",
+    )
+    output_mode.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify that the workspace already has the computed version.",
     )
     parser.add_argument(
         "--skip-lockfile",
         action="store_true",
         help="Do not run cargo metadata to refresh codex-rs/Cargo.lock.",
-    )
-    parser.add_argument(
-        "--allow-dirty",
-        action="store_true",
-        help="Allow codex-rs/Cargo.toml or Cargo.lock to have local changes.",
     )
     return parser.parse_args()
 
@@ -194,6 +196,29 @@ def latest_release_version(repo: Path, upstream_base: str) -> str:
     )
 
 
+def fork_source_commit(repo: Path, source_commit: str) -> str:
+    subject = git(["show", "-s", "--format=%s", source_commit], repo)
+    if subject != VERSION_STAMP_COMMIT_SUBJECT:
+        return source_commit
+
+    parents = git(["show", "-s", "--format=%P", source_commit], repo).split()
+    if not parents:
+        raise RuntimeError("Version stamp commit has no parent source commit.")
+    return parents[0]
+
+
+def local_version(
+    release_version: str,
+    metadata_prefix: str,
+    upstream_base_short: str,
+    fork_source_short: str,
+) -> str:
+    return (
+        f"{release_version}+{metadata_prefix}.{upstream_base_short}"
+        f".fork.{fork_source_short}"
+    )
+
+
 def replace_workspace_version(cargo_toml: Path, new_version: str) -> str:
     lines = cargo_toml.read_bytes().decode("utf-8").splitlines(keepends=True)
     in_workspace_package = False
@@ -234,16 +259,13 @@ def current_workspace_version(cargo_toml: Path) -> str:
     return version.group(1)
 
 
-def ensure_clean_version_files(repo: Path) -> None:
-    status = git(
-        ["status", "--porcelain", "--", "codex-rs/Cargo.toml", "codex-rs/Cargo.lock"],
-        repo,
-    )
+def ensure_clean_worktree(repo: Path) -> None:
+    status = git(["status", "--porcelain", "--untracked-files=all"], repo)
     if not status:
         return
     raise RuntimeError(
-        "codex-rs/Cargo.toml or codex-rs/Cargo.lock already has local changes. "
-        "Commit/stash them first, or rerun with --allow-dirty.\n"
+        "Refusing to stamp a dirty worktree. Commit, stash, or remove every "
+        "tracked and untracked change first.\n"
         f"{status}"
     )
 
@@ -306,11 +328,18 @@ def main() -> int:
 
     source_ref = git(["rev-parse", "--verify", "--quiet", args.source_ref], repo)
     upstream_base = git(["merge-base", source_ref, upstream_ref], repo)
+    fork_source = fork_source_commit(repo, source_ref)
     release_version = latest_release_version(repo, upstream_base)
     upstream_base_short = git(
         ["rev-parse", f"--short={args.sha_len}", upstream_base], repo
     )
-    target_version = f"{release_version}+{args.metadata_prefix}.{upstream_base_short}"
+    fork_source_short = git(["rev-parse", f"--short={args.sha_len}", fork_source], repo)
+    target_version = local_version(
+        release_version,
+        args.metadata_prefix,
+        upstream_base_short,
+        fork_source_short,
+    )
 
     cargo_toml = repo / "codex-rs" / "Cargo.toml"
     current_version = current_workspace_version(cargo_toml)
@@ -319,13 +348,23 @@ def main() -> int:
     print(f"Source ref:               {args.source_ref} {source_ref[: args.sha_len]}")
     print(f"Upstream branch:          {args.remote}/{args.branch}")
     print(f"Included upstream commit: {upstream_base_short}")
+    print(f"Included fork commit:     {fork_source_short}")
     print(f"Target local version:     {target_version}")
 
     if args.dry_run:
         return 0
 
-    if not args.allow_dirty:
-        ensure_clean_version_files(repo)
+    if args.check:
+        if current_version != target_version:
+            raise RuntimeError(
+                f"Workspace version is stale: expected {target_version}, "
+                f"found {current_version}. Run `just set-local-version` and "
+                "commit the version files before building."
+            )
+        print("Workspace version matches the source commits.")
+        return 0
+
+    ensure_clean_worktree(repo)
 
     update_workspace_version(
         repo,

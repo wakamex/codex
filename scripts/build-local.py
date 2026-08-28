@@ -54,8 +54,34 @@ def target_dir(codex_rs: Path) -> Path:
     return path if path.is_absolute() else codex_rs / path
 
 
+def ensure_clean_worktree(repo: Path) -> None:
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    status = result.stdout.strip()
+    if status:
+        raise RuntimeError(
+            "Refusing to build a dirty worktree. Commit, stash, or remove every "
+            f"tracked and untracked change first.\n{status}"
+        )
+
+
+def verify_local_version(repo: Path) -> None:
+    subprocess.run(
+        [sys.executable, repo / "scripts" / "set-local-version.py", "--check"],
+        cwd=repo,
+        check=True,
+    )
+
+
 def main() -> int:
     repo = repo_root()
+    ensure_clean_worktree(repo)
+    verify_local_version(repo)
     codex_rs = repo / "codex-rs"
     spec = TARGET_SPECS[rust_host_target()]
     env = {**os.environ, **resolve_codex_v8_cargo_env(spec)}

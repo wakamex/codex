@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import unittest
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 
@@ -36,6 +37,33 @@ class RustHostTargetTest(unittest.TestCase):
         with patch.object(BUILD_LOCAL.subprocess, "run", return_value=rustc_output):
             with self.assertRaisesRegex(RuntimeError, "Unsupported host target"):
                 BUILD_LOCAL.rust_host_target()
+
+
+class WorktreeValidationTest(unittest.TestCase):
+    def test_rejects_dirty_worktree(self) -> None:
+        result = subprocess.CompletedProcess(
+            ["git", "status"],
+            0,
+            stdout=" M scripts/build-local.py\n",
+        )
+        with patch.object(BUILD_LOCAL.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, "dirty worktree"):
+                BUILD_LOCAL.ensure_clean_worktree(Path("/repo"))
+
+    def test_checks_local_version_with_repository_script(self) -> None:
+        run = MagicMock()
+        with patch.object(BUILD_LOCAL.subprocess, "run", run):
+            BUILD_LOCAL.verify_local_version(Path("/repo"))
+
+        run.assert_called_once_with(
+            [
+                BUILD_LOCAL.sys.executable,
+                Path("/repo/scripts/set-local-version.py"),
+                "--check",
+            ],
+            cwd=Path("/repo"),
+            check=True,
+        )
 
 
 if __name__ == "__main__":
