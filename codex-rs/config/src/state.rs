@@ -13,6 +13,7 @@ use crate::ConfigLayerMetadata;
 use crate::ConfigLayerSource;
 use crate::ProfileV2Name;
 use crate::shell_environment_policy::validate_shell_environment_policy_filter_config;
+use codex_protocol::config_types::TrustLevel;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -266,6 +267,15 @@ pub struct ConfigLayerStack {
     /// `None` means the loader did not check for stack-level warnings, while
     /// `Some(vec![])` means it checked and found nothing to report.
     startup_warnings: Option<Vec<String>>,
+
+    /// Server-resolved trust decision for the cwd used to build this stack.
+    project_trust: Option<Box<ProjectTrust>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectTrust {
+    pub trust_level: Option<TrustLevel>,
+    pub trust_key: String,
 }
 
 impl ConfigLayerStack {
@@ -282,7 +292,17 @@ impl ConfigLayerStack {
             requirements_toml,
             ignore_user_and_project_exec_policy_rules: false,
             startup_warnings: None,
+            project_trust: None,
         })
+    }
+
+    pub(crate) fn with_project_trust(mut self, project_trust: Option<ProjectTrust>) -> Self {
+        self.project_trust = project_trust.map(Box::new);
+        self
+    }
+
+    pub fn project_trust(&self) -> Option<&ProjectTrust> {
+        self.project_trust.as_deref()
     }
 
     pub fn with_user_and_project_exec_policy_rules_ignored(
@@ -411,6 +431,7 @@ impl ConfigLayerStack {
             ignore_user_and_project_exec_policy_rules: self
                 .ignore_user_and_project_exec_policy_rules,
             startup_warnings: self.startup_warnings.clone(),
+            project_trust: self.project_trust.clone(),
         })
     }
 
@@ -445,6 +466,7 @@ impl ConfigLayerStack {
             ignore_user_and_project_exec_policy_rules: self
                 .ignore_user_and_project_exec_policy_rules,
             startup_warnings: self.startup_warnings.clone(),
+            project_trust: self.project_trust.clone(),
         }
     }
 

@@ -9,6 +9,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigEdit;
 use codex_app_server_protocol::ConfigReadParams;
+use codex_app_server_protocol::ConfigReadProjectTrust;
 use codex_app_server_protocol::ConfigReadResponse;
 use codex_app_server_protocol::ConfigWriteResponse;
 use codex_app_server_protocol::EnvironmentInfoParams;
@@ -223,84 +224,31 @@ pub(crate) async fn read_remote_project_trust(
                 .wrap_err("failed to resolve the remote project directory")?
         }
     };
-    let cwd_uri = cwd;
-    let cwd = cwd_uri.inferred_native_path_string();
+    let cwd = cwd.inferred_native_path_string();
     let request_id = RequestId::String(format!("tui-project-trust-read-{}", Uuid::new_v4()));
     let response: JsonValue = request_handle
         .request_typed(ClientRequest::ConfigRead {
             request_id,
             params: ConfigReadParams {
-                include_layers: true,
+                include_layers: false,
                 cwd: Some(cwd.clone()),
             },
         })
         .await
         .wrap_err("config/read failed while checking remote project trust")?;
-    let project_layers = response
-        .get("layers")
-        .and_then(JsonValue::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|layer| layer["name"]["type"] == "project")
-        .collect::<Vec<_>>();
-    let disabled_project = project_layers.iter().rev().find(|layer| {
-        layer
-            .get("disabledReason")
-            .and_then(JsonValue::as_str)
-            .is_some()
-    });
-    let disabled_reason = disabled_project
-        .and_then(|layer| layer.get("disabledReason"))
-        .and_then(JsonValue::as_str);
-    let trust_target = disabled_reason
-        .and_then(|reason| reason.split_once(", add "))
-        .and_then(|(_, reason)| reason.rsplit_once(" as a trusted project in "))
-        .map(|(trust_target, _)| trust_target)
-        .or_else(|| {
-            disabled_project
-                .and_then(|layer| layer["name"]["dotCodexFolder"].as_str())
-                .and_then(|path| {
-                    path.strip_suffix("/.codex")
-                        .or_else(|| path.strip_suffix("\\.codex"))
-                })
-        })
-        .unwrap_or(&cwd);
-    let projects = response["config"]["projects"].as_object();
-    let has_trust_decision = projects
-        .and_then(|projects| projects.get(trust_target))
-        .and_then(|project| project.get("trust_level"))
-        .and_then(JsonValue::as_str)
-        .is_some_and(|level| matches!(level, "trusted" | "untrusted"));
-    let explicitly_untrusted = disabled_reason.is_some_and(|reason| {
-        projects.into_iter().flatten().any(|(path, project)| {
-            project.get("trust_level").and_then(JsonValue::as_str) == Some("untrusted")
-                && reason
-                    .strip_prefix(path)
-                    .is_some_and(|suffix| suffix.starts_with(" is marked as untrusted"))
-        })
-    });
-    if has_trust_decision
-        || explicitly_untrusted
-        || (disabled_project.is_none()
-            && project_layers
-                .iter()
-                .any(|layer| layer.get("disabledReason").is_none()))
-    {
+    let project_trust = response
+        .get("projectTrust")
+        .cloned()
+        .map(serde_json::from_value::<ConfigReadProjectTrust>)
+        .transpose()
+        .wrap_err("config/read returned invalid project trust")?;
+    let Some(project_trust) = project_trust else {
+        return Ok(None);
+    };
+    if project_trust.trust_level.is_some() {
         return Ok(None);
     }
-
-    if project_layers.is_empty()
-        && projects.into_iter().flatten().any(|(path, project)| {
-            project.get("trust_level").and_then(JsonValue::as_str) == Some("untrusted")
-                && LegacyAppPathString::from_string(path.clone())
-                    .to_inferred_path_uri()
-                    .is_some_and(|project_uri| cwd_uri.starts_with(&project_uri))
-        })
-    {
-        return Err(color_eyre::eyre::eyre!(
-            "remote project directory is inside an explicitly untrusted project; pass the repository root explicitly with --cd"
-        ));
-    }
+    let trust_target = project_trust.trust_target.inferred_native_path_string();
 
     Ok(Some(RemoteProjectTrust {
         cwd: PathBuf::from(&cwd),

@@ -195,6 +195,7 @@ pub use state::ConfigLayerEntry;
 pub use state::ConfigLayerStack;
 pub use state::ConfigLoadOptions;
 pub use state::LoaderOverrides;
+pub use state::ProjectTrust;
 pub use strict_config::config_error_from_ignored_toml_fields;
 pub use thread_config::NoopThreadConfigLoader;
 pub use thread_config::RemoteThreadConfigLoader;

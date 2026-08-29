@@ -4,5 +4,10 @@
 import type { Config } from "./Config";
 import type { ConfigLayer } from "./ConfigLayer";
 import type { ConfigLayerMetadata } from "./ConfigLayerMetadata";
+import type { ConfigReadProjectTrust } from "./ConfigReadProjectTrust";
 
-export type ConfigReadResponse = { config: Config, origins: { [key in string]?: ConfigLayerMetadata }, layers: Array<ConfigLayer> | null, };
+export type ConfigReadResponse = { config: Config, origins: { [key in string]?: ConfigLayerMetadata }, layers: Array<ConfigLayer> | null,
+/**
+ * Project trust resolved by the server for the requested `cwd`.
+ */
+projectTrust: ConfigReadProjectTrust | null, };

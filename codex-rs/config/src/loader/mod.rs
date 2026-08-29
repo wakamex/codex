@@ -272,6 +272,7 @@ pub async fn load_config_layers_state(
         .map_err(io::Error::other)?;
 
     let mut layers = Vec::<ConfigLayerEntry>::new();
+    let mut resolved_project_trust = None;
     layers.push(packaged_defaults_layer);
 
     let cli_overrides_layer = if cli_overrides.is_empty() {
@@ -422,6 +423,11 @@ pub async fn load_config_layers_state(
             }
         };
         apply_credential_broker_requirements(&mut project_trust_context, &config_requirements_toml);
+        let decision = project_trust_context.decision_for_dir(&cwd);
+        resolved_project_trust = Some(crate::ProjectTrust {
+            trust_level: decision.trust_level,
+            trust_key: decision.trust_key,
+        });
         let project_layers = load_project_layers(
             fs,
             &cwd,
@@ -516,7 +522,8 @@ pub async fn load_config_layers_state(
         config_requirements_toml.clone().try_into()?,
         config_requirements_toml.into_toml(),
     )?
-    .with_user_and_project_exec_policy_rules_ignored(ignore_user_and_project_exec_policy_rules);
+    .with_user_and_project_exec_policy_rules_ignored(ignore_user_and_project_exec_policy_rules)
+    .with_project_trust(resolved_project_trust);
     Ok(match startup_warnings {
         Some(startup_warnings) => config_layer_stack.with_startup_warnings(startup_warnings),
         None => config_layer_stack,
@@ -1113,7 +1120,7 @@ impl ProjectTrustContext {
         let trust_key = decision.trust_key.as_str();
         let user_config_file = self.user_config_file.as_path().display();
         // Trust may come from managed config. Keep the explicit-untrusted prefix
-        // stable because the remote TUI uses it to recognize existing decisions.
+        // stable for callers that display or inspect the disabled reason.
         match decision.trust_level {
             Some(TrustLevel::Untrusted) => Some(format!(
                 "{trust_key} is marked as untrusted in the effective configuration. To load {gated_features}, update its trust setting. If that setting is managed by your organization, contact your administrator."

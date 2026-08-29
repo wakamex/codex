@@ -529,6 +529,7 @@ sandbox_mode = "workspace-write"
         config,
         origins,
         layers,
+        ..
     } = timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request_id)).await??;
 
     assert_eq!(config.model.as_deref(), Some("gpt-user"));
@@ -582,6 +583,7 @@ allowed_domains = ["example.com"]
         config,
         origins,
         layers,
+        ..
     } = timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request_id)).await??;
 
     let tools = config.tools.expect("tools present");
@@ -1065,6 +1067,7 @@ enabled = true
         config,
         origins,
         layers,
+        ..
     } = serde_json::from_value(response)?;
 
     assert_eq!(
@@ -1427,6 +1430,7 @@ writable_roots = [{}]
         config,
         origins,
         layers,
+        ..
     } = timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request_id)).await??;
 
     assert_eq!(config.model.as_deref(), Some("gpt-system"));

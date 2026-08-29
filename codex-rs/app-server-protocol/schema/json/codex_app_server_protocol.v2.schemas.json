@@ -5578,6 +5578,27 @@
       "title": "ConfigReadParams",
       "type": "object"
     },
+    "ConfigReadProjectTrust": {
+      "properties": {
+        "trustLevel": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TrustLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trustTarget": {
+          "$ref": "#/definitions/PathUri"
+        }
+      },
+      "required": [
+        "trustTarget"
+      ],
+      "type": "object"
+    },
     "ConfigReadResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -5598,6 +5619,17 @@
             "$ref": "#/definitions/ConfigLayerMetadata"
           },
           "type": "object"
+        },
+        "projectTrust": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ConfigReadProjectTrust"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Project trust resolved by the server for the requested `cwd`."
         }
       },
       "required": [
@@ -22183,6 +22215,14 @@
         }
       },
       "type": "object"
+    },
+    "TrustLevel": {
+      "description": "Represents the trust level for a project directory. This determines the approval policy and sandbox mode applied.",
+      "enum": [
+        "trusted",
+        "untrusted"
+      ],
+      "type": "string"
     },
     "Turn": {
       "properties": {

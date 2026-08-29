@@ -4,6 +4,7 @@ use crate::config_manager::ConfigManager;
 use codex_app_server_protocol::Config as ApiConfig;
 use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigReadParams;
+use codex_app_server_protocol::ConfigReadProjectTrust;
 use codex_app_server_protocol::ConfigReadResponse;
 use codex_app_server_protocol::ConfigValueWriteParams;
 use codex_app_server_protocol::ConfigWriteErrorCode;
@@ -33,6 +34,7 @@ use codex_core::path_utils::resolve_symlink_write_paths;
 use codex_core::path_utils::write_atomically;
 use codex_protocol::protocol::AskForApproval;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use codex_utils_path_uri::LegacyAppPathString;
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
 use std::path::Path;
@@ -156,6 +158,27 @@ impl ConfigManager {
                 .is_none()
         });
 
+        let project_trust = layers
+            .project_trust()
+            .map(|project_trust| {
+                let trust_target = LegacyAppPathString::from_string(&project_trust.trust_key)
+                    .to_inferred_path_uri()
+                    .ok_or_else(|| {
+                        ConfigManagerError::io(
+                            "failed to encode the project trust target",
+                            std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                project_trust.trust_key.clone(),
+                            ),
+                        )
+                    })?;
+                Ok::<_, ConfigManagerError>(Box::new(ConfigReadProjectTrust {
+                    trust_level: project_trust.trust_level,
+                    trust_target,
+                }))
+            })
+            .transpose()?;
+
         Ok(ConfigReadResponse {
             config,
             origins: origins
@@ -171,6 +194,7 @@ impl ConfigManager {
                     .map(|layer| config_layer_to_api(layer.as_layer()))
                     .collect()
             }),
+            project_trust,
         })
     }
 

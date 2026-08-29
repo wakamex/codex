@@ -931,6 +931,27 @@
         }
       ]
     },
+    "ConfigReadProjectTrust": {
+      "properties": {
+        "trustLevel": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TrustLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trustTarget": {
+          "$ref": "#/definitions/PathUri"
+        }
+      },
+      "required": [
+        "trustTarget"
+      ],
+      "type": "object"
+    },
     "ForcedChatgptWorkspaceIds": {
       "anyOf": [
         {
@@ -950,6 +971,9 @@
         "chatgpt",
         "api"
       ],
+      "type": "string"
+    },
+    "PathUri": {
       "type": "string"
     },
     "ReasoningEffort": {
@@ -1023,6 +1047,14 @@
         }
       },
       "type": "object"
+    },
+    "TrustLevel": {
+      "description": "Represents the trust level for a project directory. This determines the approval policy and sandbox mode applied.",
+      "enum": [
+        "trusted",
+        "untrusted"
+      ],
+      "type": "string"
     },
     "Verbosity": {
       "description": "Controls output length/detail on GPT-5 models via the Responses API. Serialized with lowercase values to match the OpenAI API.",
@@ -1134,6 +1166,17 @@
         "$ref": "#/definitions/ConfigLayerMetadata"
       },
       "type": "object"
+    },
+    "projectTrust": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ConfigReadProjectTrust"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Project trust resolved by the server for the requested `cwd`."
     }
   },
   "required": [
