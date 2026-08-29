@@ -9,9 +9,13 @@ impl App {
         tui: &mut tui::Tui,
         app_server: &mut AppServerSession,
     ) -> Result<AppRunControl> {
+        let remote_cwd_override = app_server
+            .remote_cwd_override()
+            .map(std::path::Path::to_path_buf);
         let picker_app_server = match crate::start_app_server_for_picker(
             &self.config,
             &self.app_server_target,
+            remote_cwd_override,
             self.state_db.clone(),
             self.environment_manager.clone(),
         )
