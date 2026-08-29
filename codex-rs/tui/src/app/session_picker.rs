@@ -11,6 +11,9 @@ impl App {
     ) -> Result<AppRunControl> {
         // Keep embedded-server initialization on its own runtime task as well as opening the
         // picker on a fresh event-loop iteration; its auth manager needs more stack headroom.
+        let remote_cwd_override = app_server
+            .remote_cwd_override()
+            .map(std::path::Path::to_path_buf);
         let picker_config = self.config.clone();
         let picker_target = self.app_server_target.clone();
         let picker_state_db = self.state_db.clone();
@@ -19,6 +22,7 @@ impl App {
             crate::start_app_server_for_picker(
                 &picker_config,
                 &picker_target,
+                remote_cwd_override,
                 picker_state_db,
                 picker_environment_manager,
             )

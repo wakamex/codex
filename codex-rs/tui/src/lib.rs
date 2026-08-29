@@ -571,6 +571,7 @@ async fn start_app_server(
 pub(crate) async fn start_app_server_for_picker(
     config: &Config,
     target: &AppServerTarget,
+    remote_cwd_override: Option<PathBuf>,
     state_db: Option<StateDbHandle>,
     environment_manager: Arc<EnvironmentManager>,
 ) -> color_eyre::Result<AppServerSession> {
@@ -592,7 +593,8 @@ pub(crate) async fn start_app_server_for_picker(
     .await?;
     Ok(
         AppServerSession::new(app_server, target.thread_params_mode())
-            .with_local_codex_home(&config.codex_home),
+            .with_local_codex_home(&config.codex_home)
+            .with_remote_cwd_override(remote_cwd_override),
     )
 }
 
@@ -2330,6 +2332,25 @@ requires_openai_auth = {requires_openai_auth}
     }
 
     #[tokio::test]
+    async fn picker_app_server_preserves_remote_cwd_override() -> color_eyre::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let config = build_config(&temp_dir).await?;
+        let remote_cwd = PathBuf::from("/srv/panetone");
+        let app_server = start_app_server_for_picker(
+            &config,
+            &AppServerTarget::Embedded,
+            Some(remote_cwd.clone()),
+            /*state_db*/ None,
+            Arc::new(EnvironmentManager::default_for_tests()),
+        )
+        .await?;
+
+        assert_eq!(app_server.remote_cwd_override(), Some(remote_cwd.as_path()));
+        app_server.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn bedrock_setup_wizard_requires_eligible_onboarding() -> color_eyre::Result<()> {
         let shared_endpoint = RemoteAppServerEndpoint::WebSocket {
             websocket_url: "ws://127.0.0.1:4500/".to_string(),
@@ -2691,6 +2712,7 @@ requires_openai_auth = {requires_openai_auth}
             let mut app_server = start_app_server_for_picker(
                 &final_config,
                 &AppServerTarget::Embedded,
+                /*remote_cwd_override*/ None,
                 state_db,
                 Arc::new(EnvironmentManager::default_for_tests()),
             )
