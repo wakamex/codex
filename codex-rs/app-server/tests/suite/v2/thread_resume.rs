@@ -440,7 +440,7 @@ async fn wait_for_responses_request_count(
 }
 
 #[tokio::test]
-async fn thread_resume_rejects_unmaterialized_thread() -> Result<()> {
+async fn thread_resume_materializes_a_running_thread() -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
     mock_responses_config(&server.uri()).write(codex_home.path())?;
@@ -459,27 +459,22 @@ async fn thread_resume_rejects_unmaterialized_thread() -> Result<()> {
         .await?;
     let ThreadStartResponse { thread, .. } =
         timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(start_id)).await??;
+    let rollout_path = thread.path.clone().expect("thread rollout path");
+    assert!(!rollout_path.exists());
 
-    // Resume should fail before the first user message materializes rollout storage.
+    // Attaching another client is a durable use of the live thread even before
+    // its first user message.
     let resume_id = mcp
         .send_thread_resume_request(ThreadResumeParams {
             thread_id: thread.id.clone(),
             ..Default::default()
         })
         .await?;
-    let resume_err: JSONRPCError = timeout(
-        DEFAULT_READ_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(resume_id)),
-    )
-    .await??;
-    assert!(
-        resume_err
-            .error
-            .message
-            .contains("no rollout found for thread id"),
-        "unexpected resume error: {}",
-        resume_err.error.message
-    );
+    let ThreadResumeResponse {
+        thread: resumed, ..
+    } = timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(resume_id)).await??;
+    assert_eq!(resumed.id, thread.id);
+    assert!(rollout_path.exists());
 
     Ok(())
 }

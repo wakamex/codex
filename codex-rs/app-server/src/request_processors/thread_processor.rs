@@ -4192,6 +4192,11 @@ impl ThreadRequestProcessor {
         } else if let Ok(existing_thread_id) = ThreadId::from_string(&params.thread_id)
             && let Ok(existing_thread) = self.thread_manager.get_thread(existing_thread_id).await
         {
+            // A second client may attach before the fresh thread's first user
+            // message has caused deferred rollout storage to be created.
+            // Resuming is itself a durable use of the thread, so make the
+            // loaded thread readable before constructing the response.
+            existing_thread.ensure_rollout_materialized().await;
             let source_thread = self
                 .read_stored_thread_for_resume(
                     &params.thread_id,
