@@ -215,10 +215,8 @@ impl ChatWidget {
                 segments.push((*item, value));
             }
         }
-        let mut status_line = status_line_from_segments(
-            segments,
-            self.local_settings.tui.status_line_use_colors,
-        );
+        let mut status_line =
+            status_line_from_segments(segments, self.local_settings.tui.status_line_use_colors);
         if let Some(loop_indicator) = loop_indicator {
             if let Some(line) = status_line.as_mut() {
                 if !line.spans.is_empty() {
