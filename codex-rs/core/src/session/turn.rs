@@ -13,6 +13,7 @@ use crate::compact_remote::run_inline_remote_auto_compact_task;
 use crate::compact_remote_v2::run_inline_remote_auto_compact_task as run_inline_remote_auto_compact_task_v2;
 use crate::connectors;
 use crate::context::ContextualUserFragment;
+use crate::context::TurnFailure;
 use crate::environment_selection::TurnEnvironmentSnapshot;
 use crate::feedback_tags;
 use crate::hook_runtime::drain_async_hook_results;
@@ -632,9 +633,39 @@ pub(crate) async fn run_turn(
             Err(e) => {
                 info!("Turn error: {e:#}");
                 let error = e.to_codex_protocol_error();
-                sess.emit_turn_error_lifecycle(turn_context.as_ref(), error.clone())
-                    .await;
                 sess.track_turn_codex_error(turn_context.as_ref(), &e);
+                let message = e.to_string();
+                let continuation = sess
+                    .services
+                    .extensions
+                    .turn_failure_continuation(codex_extension_api::TurnFailureInput {
+                        turn_id: turn_context.sub_id.as_str(),
+                        error: error.clone(),
+                        message: &message,
+                        session_store: &sess.services.session_extension_data,
+                        thread_store: &sess.services.thread_extension_data,
+                        turn_store: turn_context.extension_data.as_ref(),
+                    })
+                    .await;
+                if let Some(continuation) = continuation {
+                    let history = sess.clone_history().await.into_raw_items();
+                    let failure = TurnFailure::from_history(
+                        error,
+                        &message,
+                        continuation,
+                        turn_context.sub_id.as_str(),
+                        &history,
+                    );
+                    let response_item = ContextualUserFragment::into(failure);
+                    sess.record_conversation_items(
+                        turn_context.as_ref(),
+                        std::slice::from_ref(&response_item),
+                    )
+                    .await;
+                    continue;
+                }
+                sess.emit_turn_error_lifecycle(turn_context.as_ref(), error)
+                    .await;
                 let event = EventMsg::Error(e.to_error_event(/*message_prefix*/ None));
                 sess.send_event(&turn_context, event).await;
                 // let the user continue the conversation
