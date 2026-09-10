@@ -2154,6 +2154,7 @@ dependencies = [
  "codex-state",
  "codex-thread-store",
  "codex-tools",
+ "codex-turn-failure-handler-extension",
  "codex-utils-absolute-path",
  "codex-utils-cargo-bin",
  "codex-utils-cli",
@@ -4701,6 +4702,24 @@ dependencies = [
  "windows-sys 0.52.0",
  "winsplit",
  "wiremock",
+]
+
+[[package]]
+name = "codex-turn-failure-handler-extension"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "codex-extension-api",
+ "codex-protocol",
+ "codex-state",
+ "codex-tools",
+ "codex-utils-absolute-path",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
