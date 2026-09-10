@@ -67,6 +67,16 @@ impl ContextualUserFragment for TurnFailure {
 }
 
 fn summarize_tool_activity(turn_id: &str, history: &[ResponseItem]) -> String {
+    let tool_call_count = history
+        .iter()
+        .filter(|item| item.turn_id() == Some(turn_id))
+        .filter(|item| is_tool_call(item))
+        .count();
+    let displayed_entry_limit = if tool_call_count > MAX_TOOL_ENTRIES {
+        MAX_TOOL_ENTRIES - 1
+    } else {
+        MAX_TOOL_ENTRIES
+    };
     let completed_function_calls = history
         .iter()
         .filter(|item| item.turn_id() == Some(turn_id))
@@ -157,7 +167,7 @@ fn summarize_tool_activity(turn_id: &str, history: &[ResponseItem]) -> String {
         };
         if let Some(entry) = entry {
             entries.push(entry);
-            if entries.len() == MAX_TOOL_ENTRIES {
+            if entries.len() == displayed_entry_limit {
                 break;
             }
         }
@@ -166,16 +176,12 @@ fn summarize_tool_activity(turn_id: &str, history: &[ResponseItem]) -> String {
     if entries.is_empty() {
         return "- No tool calls were recorded in this turn before the failure.".to_string();
     }
-    let omitted = history
-        .iter()
-        .filter(|item| item.turn_id() == Some(turn_id))
-        .filter(|item| is_tool_call(item))
-        .count()
-        .saturating_sub(entries.len());
-    if omitted > 0 {
-        entries.push(format!(
-            "- {omitted} additional tool calls omitted by the summary limit."
-        ));
+    if tool_call_count > entries.len() {
+        let omitted = tool_call_count.saturating_sub(entries.len());
+        let omission = format!("- {omitted} additional tool calls omitted by the summary limit.");
+        let prefix_limit = MAX_TOOL_SUMMARY_BYTES.saturating_sub(omission.len() + 1);
+        let prefix = truncate_utf8(&entries.join("\n"), prefix_limit);
+        return format!("{prefix}\n{omission}");
     }
     truncate_utf8(&entries.join("\n"), MAX_TOOL_SUMMARY_BYTES)
 }
@@ -196,11 +202,15 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> String {
     if value.len() <= max_bytes {
         return value.to_string();
     }
-    let mut end = max_bytes;
+    const SUFFIX: &str = "...[truncated]";
+    if max_bytes <= SUFFIX.len() {
+        return SUFFIX[..max_bytes].to_string();
+    }
+    let mut end = max_bytes.saturating_sub(SUFFIX.len());
     while !value.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}...[truncated]", &value[..end])
+    format!("{}{SUFFIX}", &value[..end])
 }
 
 #[cfg(test)]

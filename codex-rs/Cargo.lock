@@ -2944,6 +2944,7 @@ dependencies = [
  "codex-test-binary-support",
  "codex-thread-store",
  "codex-tools",
+ "codex-turn-failure-handler-extension",
  "codex-utils-absolute-path",
  "codex-utils-audio",
  "codex-utils-cache",
