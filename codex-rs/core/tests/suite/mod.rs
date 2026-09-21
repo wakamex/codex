@@ -233,6 +233,7 @@ mod tools;
 mod truncation;
 #[path = "turn_error_details_tests.rs"]
 mod turn_error_details;
+mod turn_failure_handler;
 mod turn_input_submission;
 mod turn_phase_trace;
 mod turn_state;

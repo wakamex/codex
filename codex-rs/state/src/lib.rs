@@ -98,6 +98,8 @@ pub use runtime::SqliteIntegrityCheck;
 pub use runtime::SqliteQueueStore;
 pub use runtime::ThreadFilterOptions;
 pub use runtime::ThreadReadState;
+pub use runtime::TurnFailureHandler;
+pub use runtime::TurnFailureHandlerStore;
 pub use runtime::backup_runtime_db_for_fresh_start;
 pub use runtime::collect_runtime_db_backups;
 pub use runtime::is_sqlite_corruption_error;
