@@ -72,6 +72,7 @@ members = [
     "ext/mcp",
     "ext/queue",
     "ext/skills",
+    "ext/turn-failure-handler",
     "ext/web-search",
     "external-agent-migration",
     "keyring-store",
@@ -217,6 +218,7 @@ codex-execpolicy = { path = "execpolicy" }
 codex-extension-api = { path = "ext/extension-api" }
 codex-extension-items = { path = "ext/items" }
 codex-goal-extension = { path = "ext/goal" }
+codex-turn-failure-handler-extension = { path = "ext/turn-failure-handler" }
 codex-git-attribution = { path = "ext/git-attribution" }
 codex-guardian-reviewer = { path = "ext/guardian-reviewer" }
 codex-guardian-v2 = { path = "ext/guardian-v2" }

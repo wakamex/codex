@@ -18,6 +18,7 @@ mod prompt;
 mod skill_invocation;
 mod thread_lifecycle;
 mod tool_lifecycle;
+mod turn_failure;
 mod turn_input;
 mod turn_lifecycle;
 mod world_state;
@@ -50,6 +51,8 @@ pub use tool_lifecycle::ToolCallOutcome;
 pub use tool_lifecycle::ToolFinishInput;
 pub use tool_lifecycle::ToolLifecycleFuture;
 pub use tool_lifecycle::ToolStartInput;
+pub use turn_failure::TurnFailureContinuation;
+pub use turn_failure::TurnFailureInput;
 pub use turn_input::TurnInputContext;
 pub use turn_input::TurnInputEnvironment;
 pub use turn_lifecycle::TurnAbortInput;
@@ -241,6 +244,17 @@ pub trait TurnLifecycleContributor: Send + Sync {
             let _input = input;
         })
     }
+}
+
+/// Extension contribution that may continue a failed model request in the same logical turn.
+///
+/// Implementations must return only explicitly configured user instructions. The host invokes
+/// contributors in registration order and uses the first continuation returned.
+pub trait TurnFailureContributor: Send + Sync {
+    fn continuation<'a>(
+        &'a self,
+        input: TurnFailureInput<'a>,
+    ) -> ExtensionFuture<'a, Option<TurnFailureContinuation>>;
 }
 
 /// Extension contribution that can add turn-local model input.

@@ -11,6 +11,9 @@ use crate::ThreadLifecycleContributor;
 use crate::TokenUsageContributor;
 use crate::ToolContributor;
 use crate::ToolLifecycleContributor;
+use crate::TurnFailureContinuation;
+use crate::TurnFailureContributor;
+use crate::TurnFailureInput;
 use crate::TurnInputContributor;
 use crate::TurnItemContributor;
 use crate::TurnLifecycleContributor;
@@ -36,6 +39,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
                 context_contributors: Vec::new(),
                 mcp_server_contributors: Vec::new(),
                 turn_input_contributors: Vec::new(),
+                turn_failure_contributors: Vec::new(),
                 tool_contributors: Vec::new(),
                 tool_lifecycle_contributors: Vec::new(),
                 turn_item_contributors: Vec::new(),
@@ -122,6 +126,11 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
         self.registry.turn_input_contributors.push(contributor);
     }
 
+    /// Registers one same-turn failure continuation contributor.
+    pub fn turn_failure_contributor(&mut self, contributor: Arc<dyn TurnFailureContributor>) {
+        self.registry.turn_failure_contributors.push(contributor);
+    }
+
     /// Registers one native tool contributor.
     pub fn tool_contributor(&mut self, contributor: Arc<dyn ToolContributor>) {
         self.registry.tool_contributors.push(contributor);
@@ -155,6 +164,7 @@ pub struct ExtensionRegistry<C: Sync> {
     context_contributors: Vec<Arc<dyn ContextContributor>>,
     mcp_server_contributors: Vec<Arc<dyn McpServerContributor<C>>>,
     turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
+    turn_failure_contributors: Vec<Arc<dyn TurnFailureContributor>>,
     tool_contributors: Vec<Arc<dyn ToolContributor>>,
     tool_lifecycle_contributors: Vec<Arc<dyn ToolLifecycleContributor>>,
     turn_item_contributors: Vec<Arc<dyn TurnItemContributor>>,
@@ -176,6 +186,7 @@ impl<C: Sync> ExtensionRegistry<C> {
                 context_contributors: self.context_contributors.clone(),
                 mcp_server_contributors: self.mcp_server_contributors.clone(),
                 turn_input_contributors: self.turn_input_contributors.clone(),
+                turn_failure_contributors: self.turn_failure_contributors.clone(),
                 tool_contributors: self.tool_contributors.clone(),
                 tool_lifecycle_contributors: self.tool_lifecycle_contributors.clone(),
                 turn_item_contributors: self.turn_item_contributors.clone(),
@@ -260,6 +271,29 @@ impl<C: Sync> ExtensionRegistry<C> {
     /// Returns the registered turn-input contributors.
     pub fn turn_input_contributors(&self) -> &[Arc<dyn TurnInputContributor>] {
         &self.turn_input_contributors
+    }
+
+    /// Returns the first configured continuation claimed by an extension.
+    pub async fn turn_failure_continuation(
+        &self,
+        input: TurnFailureInput<'_>,
+    ) -> Option<TurnFailureContinuation> {
+        for contributor in &self.turn_failure_contributors {
+            if let Some(continuation) = contributor
+                .continuation(TurnFailureInput {
+                    turn_id: input.turn_id,
+                    error: input.error.clone(),
+                    message: input.message,
+                    session_store: input.session_store,
+                    thread_store: input.thread_store,
+                    turn_store: input.turn_store,
+                })
+                .await
+            {
+                return Some(continuation);
+            }
+        }
+        None
     }
 
     /// Returns the registered native tool contributors.

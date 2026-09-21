@@ -27,6 +27,9 @@ use codex_extension_api::ToolContributor;
 use codex_extension_api::ToolExecutor;
 use codex_extension_api::ToolLifecycleContributor;
 use codex_extension_api::TurnContextContributionInput;
+use codex_extension_api::TurnFailureContinuation;
+use codex_extension_api::TurnFailureContributor;
+use codex_extension_api::TurnFailureInput;
 use codex_extension_api::TurnInputContext;
 use codex_extension_api::TurnInputContributor;
 use codex_extension_api::TurnItemContributor;
@@ -79,6 +82,19 @@ impl ContextContributor for AllContributors {
 impl ThreadLifecycleContributor<()> for AllContributors {}
 
 impl TurnLifecycleContributor for AllContributors {}
+
+impl TurnFailureContributor for AllContributors {
+    fn continuation<'a>(
+        &'a self,
+        _input: TurnFailureInput<'a>,
+    ) -> ExtensionFuture<'a, Option<TurnFailureContinuation>> {
+        Box::pin(std::future::ready(Some(TurnFailureContinuation {
+            instructions: "handle it".to_string(),
+            attempt: 1,
+            max_continuations: 1,
+        })))
+    }
+}
 
 impl ConfigContributor<()> for AllContributors {}
 
@@ -186,6 +202,7 @@ async fn build_round_trips_every_contributor_category() {
     builder.skill_invocation_contributor(contributor.clone());
     builder.prompt_contributor(contributor.clone());
     builder.turn_input_contributor(contributor.clone());
+    builder.turn_failure_contributor(contributor.clone());
     builder.tool_contributor(contributor.clone());
     builder.tool_lifecycle_contributor(contributor.clone());
     builder.turn_item_contributor(contributor.clone());
@@ -199,6 +216,26 @@ async fn build_round_trips_every_contributor_category() {
     assert_eq!(registry.skill_invocation_contributors().len(), 1);
     assert_eq!(registry.context_contributors().len(), 1);
     assert_eq!(registry.turn_input_contributors().len(), 1);
+    let session_store = ExtensionData::new("session");
+    let thread_store = ExtensionData::new("thread");
+    let turn_store = ExtensionData::new("turn");
+    assert_eq!(
+        registry
+            .turn_failure_continuation(TurnFailureInput {
+                turn_id: "turn",
+                error: codex_protocol::protocol::CodexErrorInfo::CyberPolicy,
+                message: "blocked",
+                session_store: &session_store,
+                thread_store: &thread_store,
+                turn_store: &turn_store,
+            })
+            .await,
+        Some(TurnFailureContinuation {
+            instructions: "handle it".to_string(),
+            attempt: 1,
+            max_continuations: 1,
+        })
+    );
     assert_eq!(registry.tool_contributors().len(), 1);
     assert_eq!(registry.tool_lifecycle_contributors().len(), 1);
     assert_eq!(registry.turn_item_contributors().len(), 1);

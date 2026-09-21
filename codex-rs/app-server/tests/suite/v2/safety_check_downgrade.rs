@@ -14,9 +14,11 @@ use codex_app_server_protocol::ModelVerificationNotification;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
+use codex_app_server_protocol::TurnCompletedNotification;
 use codex_app_server_protocol::TurnModerationMetadataNotification;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
+use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 use codex_features::Feature;
 use core_test_support::responses;
@@ -147,6 +149,90 @@ async fn cyber_policy_response_emits_typed_error_notification_v2() -> Result<()>
             turn_id: turn_start.turn.id,
         }
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn configured_failure_handler_continues_cyber_policy_turn_without_error_notification_v2()
+-> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = responses::start_mock_server().await;
+    let configure = responses::sse_response(responses::sse(vec![
+        responses::ev_response_created("resp-configure-1"),
+        responses::ev_function_call(
+            "set-handler",
+            codex_turn_failure_handler_extension::SET_TURN_FAILURE_HANDLER_TOOL_NAME,
+            &serde_json::json!({
+                "instructions": "Recover this turn using my persisted instructions.",
+                "max_continuations": 1
+            })
+            .to_string(),
+        ),
+        responses::ev_completed("resp-configure-1"),
+    ]));
+    let configured = responses::sse_response(responses::sse(vec![
+        responses::ev_response_created("resp-configure-2"),
+        responses::ev_assistant_message("msg-configured", "Configured"),
+        responses::ev_completed("resp-configure-2"),
+    ]));
+    let failure = ResponseTemplate::new(400).set_body_json(serde_json::json!({
+        "error": {
+            "message": CYBER_POLICY_MESSAGE,
+            "type": "invalid_request",
+            "param": null,
+            "code": "cyber_policy"
+        }
+    }));
+    let recovered = responses::sse_response(responses::sse(vec![
+        responses::ev_response_created("resp-recovered"),
+        responses::ev_assistant_message("msg-recovered", "Recovered"),
+        responses::ev_completed("resp-recovered"),
+    ]));
+    let requests = responses::mount_response_sequence(
+        &server,
+        vec![configure, configured, failure, recovered],
+    )
+    .await;
+    let codex_home = TempDir::new()?;
+    create_config_toml(codex_home.path(), &server.uri())?;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let ThreadStartResponse { thread, .. } = mcp
+        .start_thread(ThreadStartParams {
+            model: Some(REQUESTED_MODEL.to_string()),
+            ..Default::default()
+        })
+        .await?;
+
+    start_text_turn(&mut mcp, &thread.id, "configure my failure handler").await?;
+    let configured: TurnCompletedNotification = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_notification("turn/completed"),
+    )
+    .await??;
+    assert_eq!(configured.turn.status, TurnStatus::Completed);
+
+    let recovery_turn = start_text_turn(&mut mcp, &thread.id, "trigger cyber policy").await?;
+    let completed = collect_completion_without_error(&mut mcp).await?;
+    assert_eq!(completed.thread_id, thread.id);
+    assert_eq!(completed.turn.id, recovery_turn.turn.id);
+    assert_eq!(completed.turn.status, TurnStatus::Completed);
+
+    let requests = requests.requests();
+    assert_eq!(requests.len(), 4);
+    assert!(
+        requests[0]
+            .body_json()
+            .to_string()
+            .contains(codex_turn_failure_handler_extension::SET_TURN_FAILURE_HANDLER_TOOL_NAME)
+    );
+    let continuation = serde_json::to_string(&requests[3].input())?;
+    assert!(continuation.contains(CYBER_POLICY_MESSAGE));
+    assert!(continuation.contains("Recover this turn using my persisted instructions."));
 
     Ok(())
 }
@@ -462,6 +548,50 @@ async fn collect_cyber_policy_error_and_validate_no_reroute(
                 return error.ok_or_else(|| {
                     anyhow::anyhow!("expected cyber policy error before turn/completed")
                 });
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn start_text_turn(
+    mcp: &mut TestAppServer,
+    thread_id: &str,
+    text: &str,
+) -> Result<TurnStartResponse> {
+    mcp.request(|request_id| ClientRequest::TurnStart {
+        request_id,
+        params: TurnStartParams {
+            thread_id: thread_id.to_string(),
+            client_user_message_id: None,
+            input: vec![UserInput::Text {
+                text: text.to_string(),
+                text_elements: Vec::new(),
+            }],
+            ..Default::default()
+        },
+    })
+    .await
+}
+
+async fn collect_completion_without_error(
+    mcp: &mut TestAppServer,
+) -> Result<TurnCompletedNotification> {
+    loop {
+        let message = timeout(DEFAULT_READ_TIMEOUT, mcp.read_next_message()).await??;
+        let JSONRPCMessage::Notification(notification) = message else {
+            continue;
+        };
+        match notification.method.as_str() {
+            "error" => anyhow::bail!(
+                "recovered turn emitted an error notification: {:?}",
+                notification.params
+            ),
+            "turn/completed" => {
+                let params = notification.params.ok_or_else(|| {
+                    anyhow::anyhow!("turn/completed notifications must include params")
+                })?;
+                return Ok(serde_json::from_value(params)?);
             }
             _ => {}
         }

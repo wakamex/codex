@@ -2106,6 +2106,7 @@ dependencies = [
  "codex-state",
  "codex-thread-store",
  "codex-tools",
+ "codex-turn-failure-handler-extension",
  "codex-uds",
  "codex-user-verification",
  "codex-utils-absolute-path",
@@ -2914,6 +2915,7 @@ dependencies = [
  "codex-test-binary-support",
  "codex-thread-store",
  "codex-tools",
+ "codex-turn-failure-handler-extension",
  "codex-utils-absolute-path",
  "codex-utils-audio",
  "codex-utils-cache",
@@ -4772,6 +4774,24 @@ dependencies = [
  "winsplit",
  "wiremock",
  "zbus",
+]
+
+[[package]]
+name = "codex-turn-failure-handler-extension"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "codex-extension-api",
+ "codex-protocol",
+ "codex-state",
+ "codex-tools",
+ "codex-utils-absolute-path",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

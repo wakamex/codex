@@ -1178,6 +1178,10 @@ ON CONFLICT(id) DO UPDATE SET
 
         let mut tx = self.pool.begin().await?;
         for thread_id_string in &thread_id_strings {
+            sqlx::query("DELETE FROM turn_failure_handlers WHERE thread_id = ?")
+                .bind(thread_id_string)
+                .execute(&mut *tx)
+                .await?;
             sqlx::query("DELETE FROM thread_dynamic_tools WHERE thread_id = ?")
                 .bind(thread_id_string)
                 .execute(&mut *tx)
@@ -1957,6 +1961,16 @@ mod tests {
             ))
             .await?;
         seed_thread_cleanup_state(&runtime, thread_id, child_thread_id).await?;
+        runtime
+            .turn_failure_handlers()
+            .set(
+                thread_id,
+                &crate::TurnFailureHandler {
+                    instructions: "notify me".to_string(),
+                    max_continuations: 1,
+                },
+            )
+            .await?;
         sqlx::query("INSERT INTO thread_dynamic_tools (thread_id, position, name, description, input_schema) VALUES (?, ?, ?, ?, ?)")
         .bind(thread_id.to_string())
         .bind(0_i64)
@@ -1977,6 +1991,7 @@ mod tests {
                 .fetch_one(runtime.pool.as_ref())
                 .await?;
         assert_eq!(dynamic_tool_count, 0);
+        assert_eq!(runtime.turn_failure_handlers().get(thread_id).await?, None);
         assert_thread_cleanup_state(&runtime, thread_id).await?;
 
         let missing_thread_id = ThreadId::from_string("00000000-0000-0000-0000-000000000403")?;
