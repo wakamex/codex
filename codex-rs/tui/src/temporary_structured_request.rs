@@ -86,6 +86,7 @@ pub(crate) async fn start_temporary_thread(
         ("features.standalone_web_search".to_string(), false.into()),
         ("features.token_budget".to_string(), false.into()),
         ("features.tool_suggest".to_string(), false.into()),
+        ("features.turn_failure_handlers".to_string(), false.into()),
         ("features.unified_exec".to_string(), false.into()),
         ("features.view_image".to_string(), false.into()),
         ("cloud.skills.enabled".to_string(), false.into()),

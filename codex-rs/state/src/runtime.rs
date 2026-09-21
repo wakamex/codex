@@ -62,6 +62,7 @@ mod thread_read_state;
 mod thread_section_order;
 mod thread_sections;
 mod threads;
+mod turn_failure_handlers;
 
 pub use external_agent_config_imports::ExternalAgentConfigImportDetailsRecord;
 pub use external_agent_config_imports::ExternalAgentConfigImportFailureRecord;
@@ -87,6 +88,8 @@ pub use thread_read_state::ReadStateOperation;
 pub use thread_read_state::ReadStateUpdate;
 pub use thread_read_state::ThreadReadState;
 pub use threads::ThreadFilterOptions;
+pub use turn_failure_handlers::TurnFailureHandler;
+pub use turn_failure_handlers::TurnFailureHandlerStore;
 
 // "Partition" is the retained-log-content bucket we cap at 10 MiB:
 // - one bucket per non-null thread_id
@@ -107,6 +110,7 @@ pub struct StateRuntime {
     memories: MemoryStore,
     memories_v2: Arc<tokio::sync::OnceCell<MemoryStore>>,
     thread_queue: SqliteQueueStore,
+    turn_failure_handlers: TurnFailureHandlerStore,
     thread_updated_at_millis: Arc<AtomicI64>,
     thread_recency_at_millis: Arc<AtomicI64>,
     reclamation: Arc<reclamation::SqliteReclamationWorker>,
@@ -270,6 +274,7 @@ impl StateRuntime {
             memories: MemoryStore::new(Arc::clone(&memories_pool), Arc::clone(&pool)),
             memories_v2: Arc::new(tokio::sync::OnceCell::new()),
             thread_queue: SqliteQueueStore::new(queue_pool),
+            turn_failure_handlers: TurnFailureHandlerStore::new(Arc::clone(&pool)),
             pool,
             logs_pool,
             sqlite,
@@ -307,6 +312,11 @@ impl StateRuntime {
     /// Return the durable, SQLite-backed user-message queue.
     pub fn thread_queue(&self) -> &SqliteQueueStore {
         &self.thread_queue
+    }
+
+    /// Return the durable per-thread failure handler store.
+    pub fn turn_failure_handlers(&self) -> &TurnFailureHandlerStore {
+        &self.turn_failure_handlers
     }
 
     /// Close all SQLite pools and wait for outstanding pool workers to exit.

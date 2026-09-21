@@ -85,6 +85,15 @@ pub(crate) fn thread_extensions(
     codex_history_notes_extension::install(&mut builder, auth_manager.clone());
     crate::install_agent_message_board(&mut builder, thread_manager.clone());
     if let Some(state_db) = state_db {
+        codex_turn_failure_handler_extension::install(
+            &mut builder,
+            Arc::clone(&state_db),
+            |config: &Config| {
+                config
+                    .features
+                    .enabled(codex_features::Feature::TurnFailureHandlers)
+            },
+        );
         codex_goal_extension::install_with_backend(
             &mut builder,
             state_db,

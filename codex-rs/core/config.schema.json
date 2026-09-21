@@ -1440,6 +1440,9 @@
             "tui_workspace": {
               "type": "boolean"
             },
+            "turn_failure_handlers": {
+              "type": "boolean"
+            },
             "ultrafast_mode": {
               "type": "boolean"
             },
@@ -8379,6 +8382,9 @@
           "type": "boolean"
         },
         "tui_workspace": {
+          "type": "boolean"
+        },
+        "turn_failure_handlers": {
           "type": "boolean"
         },
         "ultrafast_mode": {

@@ -456,6 +456,8 @@ pub enum Feature {
     GuardianExt,
     /// Enable persisted thread goals and automatic goal continuation.
     Goals,
+    /// Expose per-thread turn failure handler tools and same-turn continuations.
+    TurnFailureHandlers,
     /// Add current context-window metadata to model-visible context.
     TokenBudget,
     /// Enables experimental context management.
@@ -2186,6 +2188,12 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::Goals,
         key: "goals",
+        stage: Stage::Stable,
+        default_enabled: true,
+    },
+    FeatureSpec {
+        id: Feature::TurnFailureHandlers,
+        key: "turn_failure_handlers",
         stage: Stage::Stable,
         default_enabled: true,
     },

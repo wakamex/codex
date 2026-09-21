@@ -16,13 +16,16 @@ Settings:
   stream: true
   tool_choice: "auto"
 -- request 1 (turn) --
-00:additional_tools/developer (3; hash=bf13940dee826ebd):
-        - namespace/functions; hash=028af59ad835936d
+00:additional_tools/developer (3; hash=da9bc00e8d2efa0c):
+        - namespace/functions; hash=d7cf32ade9c63426
           - function/exec_command
           - function/write_stdin
           - function/request_user_input
           - function/request_permissions
           - function/view_image
+          - function/get_turn_failure_handler
+          - function/set_turn_failure_handler
+          - function/clear_turn_failure_handler
           - function/get_goal
           - function/create_goal
           - function/update_goal
@@ -77,13 +80,16 @@ Settings:
 ## Window 2 (after request 2: input repeated)
 Settings: same as window 1
 -- request 3 (turn) --
-00:additional_tools/developer (3; hash=bf13940dee826ebd):
-        - namespace/functions; hash=028af59ad835936d
+00:additional_tools/developer (3; hash=da9bc00e8d2efa0c):
+        - namespace/functions; hash=d7cf32ade9c63426
           - function/exec_command
           - function/write_stdin
           - function/request_user_input
           - function/request_permissions
           - function/view_image
+          - function/get_turn_failure_handler
+          - function/set_turn_failure_handler
+          - function/clear_turn_failure_handler
           - function/get_goal
           - function/create_goal
           - function/update_goal
@@ -137,13 +143,16 @@ Settings: same as window 1
 ## Window 3 (after request 3: input repeated)
 Settings: same as window 1
 -- request 4 (turn) --
-00:additional_tools/developer (3; hash=bf13940dee826ebd):
-        - namespace/functions; hash=028af59ad835936d
+00:additional_tools/developer (3; hash=da9bc00e8d2efa0c):
+        - namespace/functions; hash=d7cf32ade9c63426
           - function/exec_command
           - function/write_stdin
           - function/request_user_input
           - function/request_permissions
           - function/view_image
+          - function/get_turn_failure_handler
+          - function/set_turn_failure_handler
+          - function/clear_turn_failure_handler
           - function/get_goal
           - function/create_goal
           - function/update_goal

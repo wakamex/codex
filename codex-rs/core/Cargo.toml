@@ -155,6 +155,7 @@ codex-message-board-mcp = { workspace = true }
 codex-otel = { workspace = true }
 codex-protocol-test-support = { workspace = true }
 codex-test-binary-support = { workspace = true }
+codex-turn-failure-handler-extension = { workspace = true }
 codex-utils-cargo-bin = { workspace = true }
 codex-utils-redacted-string = { workspace = true }
 codex-utils-rustls-provider = { workspace = true }
