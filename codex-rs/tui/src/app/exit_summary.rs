@@ -18,6 +18,8 @@ pub struct ResumableThread {
 pub struct DisconnectInfo {
     /// CLI arguments identifying the server, without credential values.
     pub command: Vec<String>,
+    /// CLI arguments that restore the effective settings for this thread.
+    pub resume_args: Vec<String>,
     pub stop_hint: String,
 }
 
@@ -60,7 +62,11 @@ impl App {
                     || "use the configured stop shortcut".to_string(),
                     |key| format!("press {}", key.display_label()),
                 );
-            Some(DisconnectInfo { command, stop_hint })
+            Some(DisconnectInfo {
+                command,
+                resume_args: reconnect_settings_args(self.chat_widget.config_ref()),
+                stop_hint,
+            })
         });
         AppExitInfo {
             token_usage: self.token_usage(),
@@ -104,6 +110,7 @@ impl AppExitInfo {
             lines.push(message.to_string());
             let mut resume_command = disconnect.command.clone();
             resume_command.extend(["resume".to_string(), thread_id.to_string()]);
+            resume_command.extend(disconnect.resume_args);
             lines.push(format!(
                 "Reconnect: {}",
                 color_command(escape_command(&resume_command)),
@@ -151,4 +158,43 @@ impl AppExitInfo {
         }
         lines
     }
+}
+
+fn reconnect_settings_args(config: &Config) -> Vec<String> {
+    let approval_policy = AskForApproval::from(config.permissions.approval_policy.value());
+    let mut args = match approval_policy {
+        AskForApproval::OnRequest => {
+            vec!["--ask-for-approval".to_string(), "on-request".to_string()]
+        }
+        AskForApproval::Never => vec!["--ask-for-approval".to_string(), "never".to_string()],
+        AskForApproval::UnlessTrusted => vec![
+            "-c".to_string(),
+            "approval_policy=\"untrusted\"".to_string(),
+        ],
+        AskForApproval::Granular {
+            sandbox_approval,
+            rules,
+            skill_approval,
+            request_permissions,
+            mcp_elicitations,
+        } => vec![
+            "-c".to_string(),
+            format!(
+                "approval_policy={{ granular = {{ sandbox_approval = {sandbox_approval}, rules = {rules}, skill_approval = {skill_approval}, request_permissions = {request_permissions}, mcp_elicitations = {mcp_elicitations} }} }}"
+            ),
+        ],
+    };
+    let sandbox_mode = match config.legacy_sandbox_policy() {
+        codex_protocol::protocol::SandboxPolicy::ReadOnly { .. } => "read-only",
+        codex_protocol::protocol::SandboxPolicy::WorkspaceWrite { .. } => "workspace-write",
+        codex_protocol::protocol::SandboxPolicy::DangerFullAccess
+        | codex_protocol::protocol::SandboxPolicy::ExternalSandbox { .. } => "danger-full-access",
+    };
+    args.extend([
+        "--sandbox".to_string(),
+        sandbox_mode.to_string(),
+        "--cd".to_string(),
+        config.cwd.display().to_string(),
+    ]);
+    args
 }
