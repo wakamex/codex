@@ -143,7 +143,7 @@ async fn remote_disconnect_exit_summary_does_not_require_a_local_rollout_or_prin
     app.active_thread_id = Some(thread_id);
     app.chat_widget.handle_thread_session(test_thread_session(
         thread_id,
-        test_path_buf("/tmp/project"),
+        test_path_buf("/tmp/project's files"),
     ));
     let exit_info = app.exit_info(ExitReason::Fatal("connection lost".to_string()));
     let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
@@ -154,6 +154,22 @@ async fn remote_disconnect_exit_summary_does_not_require_a_local_rollout_or_prin
             websocket_url: "wss://example.com/".to_string(),
             auth_token: None,
         }
+    );
+    assert_eq!(
+        command,
+        vec![
+            "codex",
+            "--remote",
+            "wss://example.com:443/",
+            "resume",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "--ask-for-approval",
+            "never",
+            "--sandbox",
+            "read-only",
+            "--cd",
+            "/tmp/project's files",
+        ]
     );
     assert_snapshot!("remote_disconnect_exit", lines.join("\n"));
 }
@@ -459,6 +475,7 @@ async fn exit_interrupts_before_requesting_shutdown() -> Result<()> {
         .exit_info(reason)
         .format_exit_messages(/*color_enabled*/ false)
         .join("\n")
+        .replace(cwd.path().to_string_lossy().as_ref(), "/tmp/project")
         .replace(&thread_id.to_string(), "THREAD_ID");
     assert_snapshot!("interrupted_disconnect_exit", output);
     Ok(())

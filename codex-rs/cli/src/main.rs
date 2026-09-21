@@ -3712,6 +3712,14 @@ mod tests {
                         "--remote".to_string(),
                         "wss://example.com:443/".to_string(),
                     ],
+                    resume_args: vec![
+                        "--ask-for-approval".to_string(),
+                        "never".to_string(),
+                        "--sandbox".to_string(),
+                        "danger-full-access".to_string(),
+                        "--cd".to_string(),
+                        "/workspace with spaces".to_string(),
+                    ],
                     stop_hint: "press ctrl + x".to_string(),
                 });
                 Ok(exit_info)
@@ -3724,7 +3732,7 @@ mod tests {
             exit_info.format_exit_messages(/*color_enabled*/ false),
             vec![
                 "Disconnected from this task. Any running work continues.",
-                "Reconnect: codex --remote wss://example.com:443/ --remote-auth-token-env CODEX_REMOTE_TOKEN resume 123e4567-e89b-12d3-a456-426614174000",
+                "Reconnect: codex --remote wss://example.com:443/ --remote-auth-token-env CODEX_REMOTE_TOKEN resume 123e4567-e89b-12d3-a456-426614174000 --ask-for-approval never --sandbox danger-full-access --cd '/workspace with spaces'",
                 "Stop the current turn: run codex --remote wss://example.com:443/ --remote-auth-token-env CODEX_REMOTE_TOKEN agents, select this task, and press ctrl + x.",
                 "Token usage so far: total=2 input=0 output=2",
             ]
@@ -4341,16 +4349,47 @@ mod tests {
     }
 
     #[test]
-    fn remote_flag_parses_for_resume_subcommand() {
-        let cli =
-            MultitoolCli::try_parse_from(["codex", "resume", "--remote", "unix://codex.sock"])
-                .expect("parse");
-        let Subcommand::Resume(ResumeCommand { remote, .. }) =
-            cli.subcommand.expect("resume present")
+    fn reconnect_command_flags_parse_for_resume_subcommand() {
+        let cli = MultitoolCli::try_parse_from([
+            "codex",
+            "resume",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "--remote",
+            "unix://codex.sock",
+            "--ask-for-approval",
+            "never",
+            "--sandbox",
+            "danger-full-access",
+            "--cd",
+            "/workspace with spaces",
+        ])
+        .expect("parse");
+        let Subcommand::Resume(ResumeCommand {
+            session_id,
+            remote,
+            config_overrides,
+            ..
+        }) = cli.subcommand.expect("resume present")
         else {
             panic!("expected resume subcommand");
         };
+        assert_eq!(
+            session_id.as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
         assert_eq!(remote.remote.as_deref(), Some("unix://codex.sock"));
+        assert!(matches!(
+            config_overrides.0.approval_policy,
+            Some(codex_utils_cli::ApprovalModeCliArg::Never)
+        ));
+        assert!(matches!(
+            config_overrides.0.shared.sandbox_mode,
+            Some(codex_utils_cli::SandboxModeCliArg::DangerFullAccess)
+        ));
+        assert_eq!(
+            config_overrides.0.shared.cwd,
+            Some(PathBuf::from("/workspace with spaces"))
+        );
     }
 
     #[test]
