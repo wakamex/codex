@@ -34,35 +34,31 @@ fn completion_label_shows_duration_only_above_sixty_seconds() {
     .map(|elapsed_seconds| {
         FinalMessageSeparator::new(elapsed_seconds, /*runtime_metrics*/ None)
             .with_completed_at(completed_at, ClockFormat::TwelveHour)
-            .label(completed_at.date_naive())
+            .label()
             .expect("completion label")
     })
     .collect::<Vec<_>>();
 
     insta::assert_snapshot!(labels.join("\n"), @"
-    2:32 PM
-    2:32 PM
-    2:32 PM
-    2:32 PM
-    Worked for 1m 1s · 2:32 PM
-    Worked for 2m 5s · 2:32 PM
-    Worked for 1h 0m 5s · 2:32 PM
+    Finished at 2:32 PM on 6 Sep 2000
+    Finished at 2:32 PM on 6 Sep 2000
+    Finished at 2:32 PM on 6 Sep 2000
+    Finished at 2:32 PM on 6 Sep 2000
+    Worked for 1m 1s, finished at 2:32 PM on 6 Sep 2000
+    Worked for 2m 5s, finished at 2:32 PM on 6 Sep 2000
+    Worked for 1h 0m 5s, finished at 2:32 PM on 6 Sep 2000
     ");
 }
 
 #[test]
-fn completion_label_includes_date_when_viewed_on_another_day() {
+fn completion_label_always_includes_the_full_timestamp() {
     let completed_at = completed_at();
     let cell = FinalMessageSeparator::new(
         /*elapsed_seconds*/ Some(125),
         /*runtime_metrics*/ None,
     )
     .with_completed_at(completed_at, ClockFormat::TwelveHour);
-    let tomorrow = completed_at.date_naive().succ_opt().expect("next day");
-
-    insta::assert_snapshot!(cell.label(tomorrow).expect("completion label"), @"Worked for 2m 5s · Sep 6 at 2:32 PM");
-    let next_year = tomorrow.with_year(/*year*/ 2001).expect("valid next year");
-    insta::assert_snapshot!(cell.label(next_year).expect("completion label"), @"Worked for 2m 5s · Sep 6, 2000 at 2:32 PM");
+    insta::assert_snapshot!(cell.label().expect("completion label"), @"Worked for 2m 5s, finished at 2:32 PM on 6 Sep 2000");
 }
 
 #[test]
@@ -71,21 +67,18 @@ fn completion_uses_twelve_hour_time_at_midnight_noon_and_afternoon() {
         let completed_at = completed_at().with_hour(hour).expect("valid hour");
         FinalMessageSeparator::new(/*elapsed_seconds*/ None, /*runtime_metrics*/ None)
             .with_completed_at(completed_at, ClockFormat::TwelveHour)
-            .label(completed_at.date_naive())
+            .label()
             .expect("completion label")
     });
     insta::assert_snapshot!(labels.join("\n"), @"
-    12:32 AM
-    12:32 PM
-    3:32 PM
+    Finished at 12:32 AM on 6 Sep 2000
+    Finished at 12:32 PM on 6 Sep 2000
+    Finished at 3:32 PM on 6 Sep 2000
     ");
 }
 
 #[test]
 fn completion_uses_twenty_four_hour_time_with_dates_and_wrapping() {
-    let today = completed_at().date_naive();
-    let tomorrow = today.succ_opt().unwrap();
-    let next_year = today.with_year(/*year*/ 2001).unwrap();
     let mut labels = Vec::new();
     for hour in [0, 12, 23] {
         let completed_at = completed_at()
@@ -93,12 +86,9 @@ fn completion_uses_twenty_four_hour_time_with_dates_and_wrapping() {
             .unwrap()
             .with_minute(/*min*/ 25)
             .unwrap();
-        let mut cell = FinalMessageSeparator::new(Some(125), /*runtime_metrics*/ None)
+        let cell = FinalMessageSeparator::new(Some(125), /*runtime_metrics*/ None)
             .with_completed_at(completed_at, ClockFormat::TwentyFourHour);
-        for date in [today, tomorrow, next_year] {
-            labels.push(cell.label(date).unwrap());
-        }
-        cell.display_date = next_year;
+        labels.push(cell.label().unwrap());
         labels.push(
             cell.display_lines(/*width*/ 24)
                 .iter()
@@ -106,10 +96,7 @@ fn completion_uses_twenty_four_hour_time_with_dates_and_wrapping() {
                 .collect::<Vec<_>>()
                 .join("\n"),
         );
-        assert_eq!(
-            cell.raw_lines(),
-            vec![Line::from(cell.label(next_year).unwrap())]
-        );
+        assert_eq!(cell.raw_lines(), vec![Line::from(cell.label().unwrap())]);
     }
     insta::assert_snapshot!(labels.join("\n"));
 }
@@ -149,12 +136,12 @@ fn completion_wraps_metadata_and_preserves_unwrapped_raw_text() {
     let rendered = lines.iter().map(ToString::to_string).collect::<Vec<_>>();
 
     insta::assert_snapshot!(rendered.join("\n"), @r"
-    Worked for 2m 5s · Sep
-    6, 2000 at 2:32 PM ·
-    Local tools: 3 calls
-    (2.5s)
+    Worked for 2m 5s,
+    finished at 2:32 PM
+    on 6 Sep 2000 · Local
+    tools: 3 calls (2.5s)
     ");
-    insta::assert_snapshot!(cell.raw_lines()[0].to_string(), @"Worked for 2m 5s · Sep 6, 2000 at 2:32 PM · Local tools: 3 calls (2.5s)");
+    insta::assert_snapshot!(cell.raw_lines()[0].to_string(), @"Worked for 2m 5s, finished at 2:32 PM on 6 Sep 2000 · Local tools: 3 calls (2.5s)");
     for width in [0, 1, 5, 24] {
         assert!(
             cell.display_lines(width)
@@ -189,13 +176,15 @@ fn completion_renders_with_dim_default_colors() {
 }
 
 #[test]
-fn completion_rendering_uses_the_captured_display_date() {
+fn completion_rendering_uses_the_full_timestamp() {
     let completed_at = completed_at();
-    let mut cell =
+    let cell =
         FinalMessageSeparator::new(/*elapsed_seconds*/ None, /*runtime_metrics*/ None)
             .with_completed_at(completed_at, ClockFormat::TwelveHour);
-    cell.display_date = completed_at.date_naive();
 
-    insta::assert_snapshot!(cell.display_lines(/*width*/ 80)[0].to_string(), @"  2:32 PM");
-    assert_eq!(cell.raw_lines(), vec![Line::from("2:32 PM")]);
+    insta::assert_snapshot!(cell.display_lines(/*width*/ 80)[0].to_string(), @"  Finished at 2:32 PM on 6 Sep 2000");
+    assert_eq!(
+        cell.raw_lines(),
+        vec![Line::from("Finished at 2:32 PM on 6 Sep 2000")]
+    );
 }

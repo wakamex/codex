@@ -3,24 +3,19 @@
 use super::*;
 use crate::clock_format::ClockFormat;
 use chrono::DateTime;
-use chrono::Datelike;
 use chrono::Local;
-use chrono::NaiveDate;
 
 /// Completion metadata shown after the assistant's final response.
 ///
 /// The timestamp records when the turn actually finished, including when restored from history.
-/// Times use the host's clock preference; other local days include the date and other years the year.
+/// Times use the host's clock preference and always include the completion date.
 /// Durations are shown only above sixty seconds; shorter turns still show their timestamp.
 /// Absent metadata occupies no transcript rows.
-/// The display date is fixed at construction so crossing midnight cannot invalidate cached heights;
-/// restoring the conversation constructs new cells and refreshes whether the timestamp needs a date.
 #[derive(Debug)]
 pub struct FinalMessageSeparator {
     elapsed_seconds: Option<u64>,
     runtime_metrics: Option<RuntimeMetricsSummary>,
     completed_at: Option<DateTime<Local>>,
-    display_date: NaiveDate,
     clock_format: ClockFormat,
 }
 impl FinalMessageSeparator {
@@ -33,7 +28,6 @@ impl FinalMessageSeparator {
             elapsed_seconds,
             runtime_metrics,
             completed_at: None,
-            display_date: Local::now().date_naive(),
             clock_format: ClockFormat::TwelveHour,
         }
     }
@@ -56,34 +50,36 @@ impl FinalMessageSeparator {
         self
     }
 
-    fn label(&self, today: NaiveDate) -> Option<String> {
+    fn label(&self) -> Option<String> {
         let mut label_parts = Vec::new();
-        if let Some(elapsed_seconds) = self.elapsed_seconds.filter(|seconds| *seconds > 60) {
-            let hours = elapsed_seconds / 3_600;
-            let minutes = (elapsed_seconds % 3_600) / 60;
-            let seconds = elapsed_seconds % 60;
-            let elapsed = if hours > 0 {
-                format!("{hours}h {minutes}m {seconds}s")
-            } else if minutes > 0 {
-                format!("{minutes}m {seconds}s")
-            } else {
-                format!("{seconds}s")
-            };
-            label_parts.push(format!("Worked for {elapsed}"));
-        }
-        if let Some(completed_at) = self.completed_at {
-            let date_format = if completed_at.date_naive() == today {
-                ""
-            } else if completed_at.year() == today.year() {
-                "%b %-d at "
-            } else {
-                "%b %-d, %Y at "
-            };
-            label_parts.push(format!(
-                "{}{}",
-                completed_at.format(date_format),
+        let elapsed = self
+            .elapsed_seconds
+            .filter(|seconds| *seconds > 60)
+            .map(|elapsed_seconds| {
+                let hours = elapsed_seconds / 3_600;
+                let minutes = (elapsed_seconds % 3_600) / 60;
+                let seconds = elapsed_seconds % 60;
+                if hours > 0 {
+                    format!("{hours}h {minutes}m {seconds}s")
+                } else if minutes > 0 {
+                    format!("{minutes}m {seconds}s")
+                } else {
+                    format!("{seconds}s")
+                }
+            });
+        match (elapsed, self.completed_at) {
+            (Some(elapsed), Some(completed_at)) => label_parts.push(format!(
+                "Worked for {elapsed}, finished at {} on {}",
                 completed_at.format(self.clock_format.time_format()),
-            ));
+                completed_at.format("%-d %b %Y"),
+            )),
+            (Some(elapsed), None) => label_parts.push(format!("Worked for {elapsed}")),
+            (None, Some(completed_at)) => label_parts.push(format!(
+                "Finished at {} on {}",
+                completed_at.format(self.clock_format.time_format()),
+                completed_at.format("%-d %b %Y"),
+            )),
+            (None, None) => {}
         }
         if let Some(metrics_label) = self.runtime_metrics.and_then(runtime_metrics_label) {
             label_parts.push(metrics_label);
@@ -96,7 +92,7 @@ impl HistoryCell for FinalMessageSeparator {
         if width == 0 {
             return Vec::new();
         }
-        self.label(self.display_date)
+        self.label()
             .map(|label| {
                 let indent = if width > 2 { "  " } else { "" };
                 let options = textwrap::Options::new(usize::from(width))
@@ -111,7 +107,7 @@ impl HistoryCell for FinalMessageSeparator {
     }
 
     fn raw_lines(&self) -> Vec<Line<'static>> {
-        self.label(self.display_date)
+        self.label()
             .map(|label| vec![Line::from(label)])
             .unwrap_or_default()
     }
