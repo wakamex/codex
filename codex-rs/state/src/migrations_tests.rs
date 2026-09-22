@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use super::STATE_MIGRATOR;
 use super::THREAD_HISTORY_MIGRATOR;
 use super::repair_legacy_recency_migration_version;
+use super::repair_legacy_turn_failure_handler_migration_version;
 use crate::PINNED_THREAD_SECTION_ID;
 use crate::PINNED_THREAD_SECTION_NAME;
 
@@ -969,6 +970,109 @@ async fn repairs_recency_migration_that_was_applied_as_version_38() {
         .map(|migration| (migration.version, migration.checksum.to_vec()))
         .collect::<Vec<_>>();
     assert_eq!(applied, expected);
+
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn repairs_turn_failure_handler_migration_that_was_applied_as_version_54() {
+    let sqlite_home = crate::runtime::test_support::unique_temp_dir();
+    tokio::fs::create_dir_all(&sqlite_home)
+        .await
+        .expect("sqlite home should be created");
+    let _cleanup = scopeguard::guard(sqlite_home.clone(), |sqlite_home| {
+        let _ = std::fs::remove_dir_all(sqlite_home);
+    });
+    let sqlite = crate::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
+    let state_path = sqlite.state_db_path();
+    let pool = sqlite
+        .open_read_write_pool(&state_path)
+        .await
+        .expect("sqlite database should open");
+    let turn_failure_handler_migration = STATE_MIGRATOR
+        .migrations
+        .iter()
+        .find(|migration| migration.version == 58)
+        .expect("turn failure handler migration should exist");
+    let mut legacy_migrations = STATE_MIGRATOR
+        .migrations
+        .iter()
+        .filter(|migration| migration.version <= 53)
+        .cloned()
+        .collect::<Vec<_>>();
+    legacy_migrations.push(Migration::new(
+        54,
+        turn_failure_handler_migration.description.clone(),
+        turn_failure_handler_migration.migration_type,
+        turn_failure_handler_migration.sql.clone(),
+        turn_failure_handler_migration.no_tx,
+    ));
+    Migrator::with_migrations(legacy_migrations)
+        .run(&pool)
+        .await
+        .expect("legacy turn failure handler migration should apply as version 54");
+    sqlx::query(
+        "INSERT INTO turn_failure_handlers (thread_id, instructions, max_continuations, updated_at) VALUES (?, ?, ?, ?)",
+    )
+    .bind("thread-1")
+    .bind("continue the turn")
+    .bind(2_i64)
+    .bind(1_000_i64)
+    .execute(&pool)
+    .await
+    .expect("legacy turn failure handler should be inserted");
+
+    repair_legacy_turn_failure_handler_migration_version(&pool, &STATE_MIGRATOR)
+        .await
+        .expect("legacy migration history should be repaired");
+    STATE_MIGRATOR
+        .run(&pool)
+        .await
+        .expect("current migrations should apply after repair");
+
+    let applied = sqlx::query(
+        "SELECT version, checksum FROM _sqlx_migrations WHERE version >= 54 ORDER BY version",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("applied migrations should load")
+    .into_iter()
+    .map(|row| {
+        (
+            row.get::<i64, _>("version"),
+            row.get::<Vec<u8>, _>("checksum"),
+        )
+    })
+    .collect::<Vec<_>>();
+    let expected = STATE_MIGRATOR
+        .migrations
+        .iter()
+        .filter(|migration| migration.version >= 54)
+        .map(|migration| (migration.version, migration.checksum.to_vec()))
+        .collect::<Vec<_>>();
+    assert_eq!(applied, expected);
+    let handler = sqlx::query_as::<_, (String, String, i64, i64)>(
+        "SELECT thread_id, instructions, max_continuations, updated_at FROM turn_failure_handlers",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("legacy turn failure handler should remain readable");
+    assert_eq!(
+        handler,
+        (
+            "thread-1".to_string(),
+            "continue the turn".to_string(),
+            2,
+            1_000,
+        )
+    );
+    let daybreak_column = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM pragma_table_info('threads') WHERE name = 'daybreak_enabled'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("daybreak column should be added");
+    assert_eq!(daybreak_column, "daybreak_enabled");
 
     pool.close().await;
 }

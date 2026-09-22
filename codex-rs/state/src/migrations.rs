@@ -117,6 +117,51 @@ WHERE version = ?
     Ok(())
 }
 
+pub(crate) async fn repair_legacy_turn_failure_handler_migration_version(
+    pool: &SqlitePool,
+    migrator: &Migrator,
+) -> anyhow::Result<()> {
+    // The fork originally shipped this migration as version 54. Upstream later
+    // claimed that version for the Daybreak column, so move only the exact
+    // legacy checksum before the normal migrator validates and fills the gap.
+    let Some(turn_failure_handler_migration) = migrator
+        .migrations
+        .iter()
+        .find(|migration| migration.version == 58)
+    else {
+        return Ok(());
+    };
+    let migrations_table_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_some();
+    if !migrations_table_exists {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+UPDATE _sqlx_migrations
+SET version = ?, description = ?
+WHERE version = ?
+  AND checksum = ?
+  AND NOT EXISTS (
+      SELECT 1 FROM _sqlx_migrations WHERE version = ?
+  )
+        "#,
+    )
+    .bind(turn_failure_handler_migration.version)
+    .bind(turn_failure_handler_migration.description.as_ref())
+    .bind(54_i64)
+    .bind(turn_failure_handler_migration.checksum.as_ref())
+    .bind(turn_failure_handler_migration.version)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "migrations_tests.rs"]
 mod tests;
