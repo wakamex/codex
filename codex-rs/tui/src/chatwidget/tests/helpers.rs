@@ -1829,11 +1829,15 @@ pub(crate) fn normalize_completion_timestamps(
     }
     static COMPLETION_FOOTER: std::sync::LazyLock<regex_lite::Regex> = std::sync::LazyLock::new(
         || {
-            regex_lite::Regex::new(r"(?m)^(?P<indent>[ \t]*)(?P<duration>Worked for (?:<1s|(?:[0-9]+h )?(?:[0-9]+m )?[0-9]+s) • )?(?:[A-Z][a-z]{2} [0-9]{1,2}(?:, [0-9]{4})? at )?[0-9]{1,2}:[0-9]{2}(?: (?:AM|PM))?(?P<padding>[ \t]*)$")
+            regex_lite::Regex::new(r"(?m)^(?P<indent>[ \t]*)(?:(?P<duration>Worked for (?:<1s|(?:[0-9]+h )?(?:[0-9]+m )?[0-9]+s)), finished at |Finished at )(?P<time>[0-9]{1,2}:[0-9]{2}(?: (?:AM|PM))?) on (?P<day>[0-9]{1,2}) (?P<month>[A-Z][a-z]{2}) (?P<year>[0-9]{4})(?P<padding>[ \t]*)$")
                 .expect("valid completion footer pattern")
         },
     );
-    COMPLETION_FOOTER
+    let raw_label = cell.raw_lines()[0].to_string();
+    let Some(raw_captures) = COMPLETION_FOOTER.captures(&raw_label) else {
+        return value.to_string();
+    };
+    let normalized = COMPLETION_FOOTER
         .replace_all(&value.to_string(), |captures: &regex_lite::Captures<'_>| {
             let indent = &captures["indent"];
             let padding = &captures["padding"];
@@ -1844,5 +1848,12 @@ pub(crate) fn normalize_completion_timestamps(
             };
             format!("{indent}{duration}[completion time]{padding}")
         })
-        .into_owned()
+        .into_owned();
+    normalized
+        .replace(&raw_captures["time"], "[time]")
+        .replace(
+            &format!("{} {}", &raw_captures["day"], &raw_captures["month"]),
+            "[date]",
+        )
+        .replace(&raw_captures["year"], "[year]")
 }

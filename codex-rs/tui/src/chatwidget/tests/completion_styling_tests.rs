@@ -54,12 +54,16 @@ fn completion_labels(rx: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>) ->
 }
 
 fn saved_completion_label() -> String {
+    format!("Finished at {}", saved_completion_timestamp())
+}
+
+fn saved_completion_timestamp() -> String {
     Local
         .timestamp_opt(COMPLETED_AT, /*nsecs*/ 0)
         .unwrap()
         .format(&format!(
-            "%b %-d, %Y at {}",
-            ClockFormat::system().time_format()
+            "{} on %-d %b %Y",
+            ClockFormat::system().time_format(),
         ))
         .to_string()
 }
@@ -95,13 +99,17 @@ async fn completion_follows_plain_and_streamed_tool_answers() {
 #[tokio::test]
 async fn completion_live_shows_known_durations_and_preserves_timestamp_fallback() {
     for (duration_ms, completed_at, prefix) in [
-        (598, Some(COMPLETED_AT), "Worked for <1s • "),
-        (1_000, Some(COMPLETED_AT), "Worked for 1s • "),
-        (60_000, Some(COMPLETED_AT), "Worked for 1m 0s • "),
-        (60_999, Some(COMPLETED_AT), "Worked for 1m 0s • "),
-        (61_000, Some(COMPLETED_AT), "Worked for 1m 1s • "),
-        (125_000, Some(COMPLETED_AT), "Worked for 2m 5s • "),
-        (1_000, None, "Worked for 1s • "),
+        (598, Some(COMPLETED_AT), "Worked for <1s, finished at "),
+        (1_000, Some(COMPLETED_AT), "Worked for 1s, finished at "),
+        (60_000, Some(COMPLETED_AT), "Worked for 1m 0s, finished at "),
+        (60_999, Some(COMPLETED_AT), "Worked for 1m 0s, finished at "),
+        (61_000, Some(COMPLETED_AT), "Worked for 1m 1s, finished at "),
+        (
+            125_000,
+            Some(COMPLETED_AT),
+            "Worked for 2m 5s, finished at ",
+        ),
+        (1_000, None, "Worked for 1s, finished at "),
     ] {
         let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
         handle_turn_started(&mut chat, "turn-1");
@@ -111,9 +119,13 @@ async fn completion_live_shows_known_durations_and_preserves_timestamp_fallback(
         let after = Local::now();
         let possible = [before, after].map(|time| {
             let time = if completed_at.is_some() {
-                saved_completion_label()
+                saved_completion_timestamp()
             } else {
-                time.format(ClockFormat::system().time_format()).to_string()
+                time.format(&format!(
+                    "{} on %-d %b %Y",
+                    ClockFormat::system().time_format(),
+                ))
+                .to_string()
             };
             format!("{prefix}{time}")
         });
@@ -131,24 +143,36 @@ async fn completion_replay_preserves_metadata_and_input_without_live_side_effect
         (
             Some(125_000),
             Some(COMPLETED_AT),
-            format!("Worked for 2m 5s • {done}"),
+            format!(
+                "Worked for 2m 5s, finished at {}",
+                saved_completion_timestamp()
+            ),
         ),
         (None, None, String::new()),
         (None, Some(COMPLETED_AT), done.clone()),
         (
             Some(598),
             Some(COMPLETED_AT),
-            format!("Worked for <1s • {done}"),
+            format!(
+                "Worked for <1s, finished at {}",
+                saved_completion_timestamp()
+            ),
         ),
         (
             Some(60_000),
             Some(COMPLETED_AT),
-            format!("Worked for 1m 0s • {done}"),
+            format!(
+                "Worked for 1m 0s, finished at {}",
+                saved_completion_timestamp()
+            ),
         ),
         (
             Some(61_000),
             Some(COMPLETED_AT),
-            format!("Worked for 1m 1s • {done}"),
+            format!(
+                "Worked for 1m 1s, finished at {}",
+                saved_completion_timestamp()
+            ),
         ),
         (Some(60_000), None, "Worked for 1m 0s".to_string()),
         (Some(125_000), None, "Worked for 2m 5s".to_string()),
@@ -201,7 +225,10 @@ async fn completion_replay_waits_for_older_turn_items_to_load() {
     chat.replay_thread_turns(vec![unloaded, newer], ReplayKind::ResumeInitialMessages);
     assert_eq!(
         completion_labels(&mut rx),
-        format!("Worked for 1s • {}", saved_completion_label())
+        format!(
+            "Worked for 1s, finished at {}",
+            saved_completion_timestamp()
+        )
     );
 
     chat.replay_thread_turns(vec![older], ReplayKind::ThreadSnapshot);
@@ -209,13 +236,13 @@ async fn completion_replay_waits_for_older_turn_items_to_load() {
         .timestamp_opt(older_completed_at, /*nsecs*/ 0)
         .unwrap()
         .format(&format!(
-            "%b %-d, %Y at {}",
-            ClockFormat::system().time_format()
+            "{} on %-d %b %Y",
+            ClockFormat::system().time_format(),
         ))
         .to_string();
     assert_eq!(
         completion_labels(&mut rx),
-        format!("Worked for 2m 5s • {older_time}"),
+        format!("Worked for 2m 5s, finished at {older_time}"),
     );
 }
 
