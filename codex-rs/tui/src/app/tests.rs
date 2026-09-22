@@ -4160,7 +4160,7 @@ async fn handle_start_side_seeds_navigation_before_thread_started() -> Result<()
                     let (_, suffix) = timer.split_once('s')?;
                     Some(format!("Working ([elapsed]{suffix}"))
                 } else if line.starts_with("Worked for ") {
-                    line.split_once(" • ")
+                    line.split_once(", finished at ")
                         .map(|(elapsed, _)| elapsed.to_owned())
                 } else {
                     line.contains("Already visible").then(|| line.to_owned())
