@@ -74,7 +74,12 @@ class InstallPackageTest(unittest.TestCase):
             self.assertIsNone(backup)
             self.assertEqual(
                 [entry.args[0][:2] for entry in run.call_args_list],
-                [["rm", "-rf"], ["cp", "-a"], ["mv", str(root / "codex_new")], ["ln", "-sfn"]],
+                [
+                    ["rm", "-rf"],
+                    ["cp", "-a"],
+                    ["mv", str(root / "codex_new")],
+                    ["ln", "-sfn"],
+                ],
             )
 
 
