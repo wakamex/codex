@@ -174,7 +174,7 @@ set-local-version *args:
 build-local:
     {{ justfile_directory() }}/scripts/build-local.py
 
-# Install previously built local binaries, preserving one rollback copy.
+# Install previously built local binaries as a Codex package, preserving one rollback copy.
 [no-cd]
 [unix]
 install-local *args:
