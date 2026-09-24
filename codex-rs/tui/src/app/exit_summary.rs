@@ -32,9 +32,12 @@ impl App {
             }
         };
         let disconnect_info = thread_id.and_then(|_| {
-            let command = match &self.app_server_target {
+            let (command, resume_args) = match &self.app_server_target {
                 AppServerTarget::Embedded => return None,
-                AppServerTarget::LocalDaemon { .. } => vec!["codex".to_string()],
+                AppServerTarget::LocalDaemon { .. } => (
+                    vec!["codex".to_string()],
+                    reconnect_settings_args(self.chat_widget.config_ref()),
+                ),
                 AppServerTarget::Remote { endpoint } => {
                     let address = match endpoint {
                         RemoteAppServerEndpoint::WebSocket { websocket_url, .. } => {
@@ -51,7 +54,10 @@ impl App {
                             format!("unix://{}", socket_path.display())
                         }
                     };
-                    vec!["codex".to_string(), "--remote".to_string(), address]
+                    (
+                        vec!["codex".to_string(), "--remote".to_string(), address],
+                        reconnect_cwd_args(self.chat_widget.config_ref()).to_vec(),
+                    )
                 }
             };
             let stop_hint = self
@@ -64,7 +70,7 @@ impl App {
                 );
             Some(DisconnectInfo {
                 command,
-                resume_args: reconnect_settings_args(self.chat_widget.config_ref()),
+                resume_args,
                 stop_hint,
             })
         });
@@ -190,11 +196,11 @@ fn reconnect_settings_args(config: &Config) -> Vec<String> {
         codex_protocol::protocol::SandboxPolicy::DangerFullAccess
         | codex_protocol::protocol::SandboxPolicy::ExternalSandbox { .. } => "danger-full-access",
     };
-    args.extend([
-        "--sandbox".to_string(),
-        sandbox_mode.to_string(),
-        "--cd".to_string(),
-        config.cwd.display().to_string(),
-    ]);
+    args.extend(["--sandbox".to_string(), sandbox_mode.to_string()]);
+    args.extend(reconnect_cwd_args(config));
     args
+}
+
+fn reconnect_cwd_args(config: &Config) -> [String; 2] {
+    ["--cd".to_string(), config.cwd.display().to_string()]
 }

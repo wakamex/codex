@@ -163,15 +163,52 @@ async fn remote_disconnect_exit_summary_does_not_require_a_local_rollout_or_prin
             "wss://example.com:443/",
             "resume",
             "123e4567-e89b-12d3-a456-426614174000",
-            "--ask-for-approval",
-            "never",
-            "--sandbox",
-            "read-only",
             "--cd",
             "/tmp/project's files",
         ]
     );
     assert_snapshot!("remote_disconnect_exit", lines.join("\n"));
+}
+
+#[tokio::test]
+async fn remote_disconnect_exit_summary_omits_granular_permission_override() {
+    let (mut app, _, _) = make_test_app_with_channels().await;
+    app.app_server_target = AppServerTarget::Remote {
+        endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
+            socket_path: test_path_buf("/run/user/1000/wakterm/codex-tui.sock").abs(),
+        },
+    };
+    app.chat_widget
+        .set_approval_policy(AskForApproval::Granular {
+            sandbox_approval: true,
+            rules: false,
+            skill_approval: true,
+            request_permissions: false,
+            mcp_elicitations: true,
+        });
+    let thread_id = ThreadId::from_string("123e4567-e89b-12d3-a456-426614174000").unwrap();
+    app.active_thread_id = Some(thread_id);
+    app.chat_widget.handle_thread_session(test_thread_session(
+        thread_id,
+        test_path_buf("/code/llama.cpp"),
+    ));
+
+    let exit_info = app.exit_info(ExitReason::UserRequested);
+    let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
+    let command = shlex::split(lines[1].strip_prefix("Reconnect: ").unwrap()).unwrap();
+
+    assert_eq!(
+        command,
+        vec![
+            "codex",
+            "--remote",
+            "unix:///run/user/1000/wakterm/codex-tui.sock",
+            "resume",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "--cd",
+            "/code/llama.cpp",
+        ]
+    );
 }
 
 #[tokio::test]

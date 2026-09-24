@@ -3157,6 +3157,30 @@ async fn resume_rejects_selected_config_profile_permission_definitions() -> Resu
 }
 
 #[tokio::test]
+async fn resume_detects_granular_approval_config_override() -> Result<()> {
+    let home = tempdir()?;
+    let cli_overrides = codex_utils_cli::CliConfigOverrides {
+        raw_overrides: vec![
+            "approval_policy={ granular = { sandbox_approval = true, rules = false, skill_approval = true, request_permissions = false, mcp_elicitations = true } }"
+                .to_string(),
+        ],
+    }
+    .parse_overrides()
+    .expect("granular approval override should parse");
+    let config = ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .cli_overrides(cli_overrides)
+        .build()
+        .await?;
+
+    assert!(config_persistence::has_explicit_resume_permission_override(
+        &config,
+        &ConfigOverrides::default(),
+    ));
+    Ok(())
+}
+
+#[tokio::test]
 async fn remote_resume_rejects_explicit_permission_override() -> Result<()> {
     let (mut app, mut events, _ops) = make_test_app_with_channels().await;
     let endpoint = crate::resolve_remote_addr("ws://127.0.0.1:8765")?;
