@@ -83,5 +83,22 @@ class InstallPackageTest(unittest.TestCase):
             )
 
 
+class PruneLocalReleasesTest(unittest.TestCase):
+    def test_keeps_only_the_selected_local_release(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            daemon_root = Path(temporary_directory)
+            releases = daemon_root / "releases"
+            for name in ("local-old", "local-current", "0.150.0"):
+                (releases / name).mkdir(parents=True)
+            (daemon_root / "current").symlink_to(releases / "local-current")
+
+            INSTALL_LOCAL.prune_local_releases(daemon_root)
+
+            self.assertEqual(
+                sorted(path.name for path in releases.iterdir()),
+                ["0.150.0", "local-current"],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

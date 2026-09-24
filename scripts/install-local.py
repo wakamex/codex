@@ -123,10 +123,24 @@ def install_package(
 def update_daemon(codex: Path) -> None:
     """Point an existing app-server daemon at the newly installed package."""
     codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-    if not (codex_home / "packages" / "app-server-daemon" / "current").exists():
+    daemon_root = codex_home / "packages" / "app-server-daemon"
+    if not (daemon_root / "current").exists():
         print("No app-server daemon package is selected; skipping daemon update.")
         return
     run([codex, "app-server", "daemon", "update", "--from-cli", "--yes"])
+    prune_local_releases(daemon_root)
+
+
+def prune_local_releases(daemon_root: Path) -> None:
+    """Remove local daemon package copies other than the selected one.
+
+    Rollback reinstalls the restored package with `daemon update --from-cli`,
+    so older copies are never reused.
+    """
+    current = (daemon_root / "current").resolve()
+    for release in (daemon_root / "releases").glob("local-*"):
+        if release.resolve() != current:
+            run(["rm", "-rf", release])
 
 
 def parse_args() -> argparse.Namespace:
