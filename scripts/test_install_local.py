@@ -2,10 +2,8 @@
 
 import importlib.util
 from pathlib import Path
-import subprocess
 import tempfile
 import unittest
-from unittest.mock import call
 from unittest.mock import patch
 
 
@@ -17,76 +15,66 @@ INSTALL_LOCAL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(INSTALL_LOCAL)
 
 
-class InstallBinariesTest(unittest.TestCase):
-    def test_validates_all_sources_before_installing(self) -> None:
+class ReleaseBinariesTest(unittest.TestCase):
+    def test_reports_every_missing_binary(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            release_dir = root / "release"
-            install_dir = root / "bin"
-            release_dir.mkdir()
-            install_dir.mkdir()
+            release_dir = Path(temporary_directory)
             (release_dir / "codex").touch()
 
-            with patch.object(INSTALL_LOCAL.subprocess, "run") as run:
-                with self.assertRaisesRegex(RuntimeError, "Missing release binaries"):
-                    INSTALL_LOCAL.install_binaries(release_dir, install_dir, ["sudo"])
+            with self.assertRaisesRegex(RuntimeError, "codex-code-mode-host"):
+                INSTALL_LOCAL.release_binaries(release_dir)
 
-            run.assert_not_called()
 
-    def test_backs_up_existing_binary_and_installs_both(self) -> None:
+class InstallPackageTest(unittest.TestCase):
+    def test_backs_up_existing_package_and_links_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            release_dir = root / "release"
+            staged = root / "staged"
+            package_dir = root / "lib" / "codex"
             install_dir = root / "bin"
-            release_dir.mkdir()
+            package_dir.mkdir(parents=True)
             install_dir.mkdir()
-            for binary in INSTALL_LOCAL.BINARIES:
-                (release_dir / binary).touch()
-            (install_dir / "codex").touch()
 
             with patch.object(INSTALL_LOCAL.subprocess, "run") as run:
-                backups = INSTALL_LOCAL.install_binaries(
-                    release_dir, install_dir, ["sudo"]
+                backup = INSTALL_LOCAL.install_package(
+                    staged, package_dir, install_dir, ["sudo"]
                 )
 
-            self.assertEqual(backups, [install_dir / "codex_bkup"])
+            incoming = root / "lib" / "codex_new"
+            self.assertEqual(backup, root / "lib" / "codex_bkup")
             self.assertEqual(
-                run.call_args_list,
+                [entry.args[0] for entry in run.call_args_list],
                 [
-                    call(
-                        [
-                            "sudo",
-                            "install",
-                            "-m",
-                            "0755",
-                            str(install_dir / "codex"),
-                            str(install_dir / "codex_bkup"),
-                        ],
-                        check=True,
-                    ),
-                    call(
-                        [
-                            "sudo",
-                            "install",
-                            "-m",
-                            "0755",
-                            str(release_dir / "codex"),
-                            str(install_dir / "codex"),
-                        ],
-                        check=True,
-                    ),
-                    call(
-                        [
-                            "sudo",
-                            "install",
-                            "-m",
-                            "0755",
-                            str(release_dir / "codex-code-mode-host"),
-                            str(install_dir / "codex-code-mode-host"),
-                        ],
-                        check=True,
-                    ),
+                    ["sudo", "rm", "-rf", str(incoming)],
+                    ["sudo", "cp", "-a", str(staged), str(incoming)],
+                    ["sudo", "rm", "-rf", str(backup)],
+                    ["sudo", "mv", str(package_dir), str(backup)],
+                    ["sudo", "mv", str(incoming), str(package_dir)],
+                    [
+                        "sudo",
+                        "ln",
+                        "-sfn",
+                        str(package_dir / "bin" / "codex"),
+                        str(install_dir / "codex"),
+                    ],
                 ],
+            )
+
+    def test_first_install_has_no_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            install_dir = root / "bin"
+            install_dir.mkdir()
+
+            with patch.object(INSTALL_LOCAL.subprocess, "run") as run:
+                backup = INSTALL_LOCAL.install_package(
+                    root / "staged", root / "codex", install_dir, []
+                )
+
+            self.assertIsNone(backup)
+            self.assertEqual(
+                [entry.args[0][:2] for entry in run.call_args_list],
+                [["rm", "-rf"], ["cp", "-a"], ["mv", str(root / "codex_new")], ["ln", "-sfn"]],
             )
 
 
