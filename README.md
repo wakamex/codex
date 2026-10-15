@@ -11,8 +11,7 @@ If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="http
 
 ## Fork Additions
 
-The material user-facing additions are TUI loops, completion timestamps, tool-free exec sessions,
-and clearer slow-down errors. Repository maintenance helpers are documented separately below.
+The material user-facing additions are TUI loops, completion timestamps, tool-free exec sessions, configurable same-turn failure handlers, and preserved reconnect commands. Repository maintenance helpers are documented separately below.
 
 ### TUI Loops
 
@@ -35,7 +34,7 @@ Current v1 limits:
 
 ### Finished Timestamps
 
-For work lasting more than one minute, the TUI turn separator includes the local completion time:
+The TUI turn separator always includes the local completion time and date:
 
 ```text
 Worked for 5m 57s, finished at 14:32 on 17 Aug 2026
@@ -50,11 +49,13 @@ codex exec --no-tools "Answer using only your existing context"
 codex exec resume --last --no-tools "Continue without tools"
 ```
 
-### Clearer Slow-Down Errors
+### Same-Turn Failure Handlers
 
-Service requests to slow down are reported separately from model-capacity errors. The resulting
-message recommends reducing request frequency or concurrency instead of suggesting a different
-model.
+Threads can configure a same-turn failure handler through the `set_turn_failure_handler`, `get_turn_failure_handler`, and `clear_turn_failure_handler` tools so terminal turn failures automatically continue the turn with custom recovery instructions up to the configured continuation limit.
+
+### Reconnect Command Preservation
+
+When disconnecting from a session, the exit summary preserves the session's active CLI flags and remote connection settings in the printed `codex resume` command so reconnecting restores the same configuration.
 
 ### Fork Maintenance
 
@@ -65,6 +66,7 @@ The repository includes helpers for maintaining and building the fork:
 - `just audit-fork` starts the separate full fork-maintenance audit flow using the latest pre-rebase backup
 - `just set-local-version --dry-run` previews the version derived from the latest included upstream release, upstream commit, and fork commit
 - `just build-local` rejects dirty source trees, applies that version temporarily, downloads and verifies the matching V8 artifacts, builds the current CLI and code-mode host, and restores the version files
+- `just install-local` assembles the built binaries into a complete Codex package under `/usr/local/lib/codex`, updates the `/usr/local/bin/codex` symlink, repins an existing daemon to the new package, preserves one rollback copy, and prunes older local daemon packages
 
 ### Rebase and resolve conflicts
 
@@ -76,10 +78,7 @@ git status --short
 just rebase-upstream
 ```
 
-If the rebase stops, resolve and stage the reported conflicts and run `git rebase --continue`, or
-return to the pre-rebase state with `git rebase --abort`. These native commands remain available even
-if the justfile itself is being replayed. The helper creates and prints a timestamped backup branch
-before rewriting anything.
+If the rebase stops, resolve and stage the reported conflicts and run `git rebase --continue`, or return to the pre-rebase state with `git rebase --abort`. These native commands remain available even if the justfile itself is being replayed. The helper creates and prints a timestamped backup branch before rewriting anything.
 
 When `git rebase` completes, this flow is done. Stack consolidation, range-diff review, the complete test suite, linting, and release builds are part of the separate audit flow below. They are not follow-up steps of `just rebase-upstream` or conflict resolution.
 
@@ -91,23 +90,20 @@ Run this flow separately when you deliberately want a complete review of the for
 just audit-fork
 ```
 
-The helper selects the latest `backup/main-before-upstream-rebase-*` branch and prints the exact
-checklist and range-diff command. Pass a backup branch explicitly if you want to audit a different
-rebase:
+The helper selects the latest `backup/main-before-upstream-rebase-*` branch and prints the exact checklist and range-diff command. Pass a backup branch explicitly if you want to audit a different rebase:
 
 ```shell
 just audit-fork backup/main-before-upstream-rebase-YYYYMMDD-HHMMSS
 ```
 
-Review the complete local stack with `git rebase -i upstream/main`. Combine related changes where
-useful and drop the previous `Stamp workspace with local version` commit. Then run the printed
-`git range-diff` command to compare the old fork stack with the updated one.
+Review the complete local stack with `git rebase -i upstream/main`. Combine related changes where useful and drop the previous `Stamp workspace with local version` commit. Then run the printed `git range-diff` command to compare the old fork stack with the updated one.
 
 Run the focused tests needed for the fork changes, followed by the complete suite:
 
 ```shell
 uv run python scripts/test_set_local_version.py
 CODEX_REPO_ROOT="$PWD" uv run python scripts/test_build_local.py
+uv run python scripts/test_install_local.py
 just test
 ```
 
@@ -117,13 +113,12 @@ Run scoped `just fix -p <crate>` checks for the affected Rust crates, then forma
 just fmt
 ```
 
-Build the locally versioned binaries, confirm the CLI's reported version, and install them. `just build-local` requires a clean tree, temporarily stamps the workspace with the upstream and fork source commits, builds with the lockfile enforced, and restores `Cargo.toml` and `Cargo.lock` before returning. No version-stamp commit is created:
+Build the locally versioned binaries, confirm the CLI's reported version, and install them as a local Codex package. `just build-local` requires a clean tree, temporarily stamps the workspace with the upstream and fork source commits, builds with the lockfile enforced, and restores `Cargo.toml` and `Cargo.lock` before returning. No version-stamp commit is created:
 
 ```shell
 just build-local
 codex-rs/target/release/codex --version
-sudo install -m 0755 codex-rs/target/release/codex /usr/local/bin/codex
-sudo install -m 0755 codex-rs/target/release/codex-code-mode-host /usr/local/bin/codex-code-mode-host
+just install-local
 ```
 
 Finally, update the fork remote:
