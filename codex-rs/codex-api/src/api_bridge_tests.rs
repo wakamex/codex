@@ -12,7 +12,7 @@ fn map_api_error_maps_server_overloaded() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn http_policy_capacity_preserves_retry_advice_and_terminal_behavior() {
+async fn http_capacity_errors_follow_retry_advice_or_local_backoff() {
     use std::time::Duration;
     for (code, expected) in [
         (
@@ -34,18 +34,15 @@ async fn http_policy_capacity_preserves_retry_advice_and_terminal_behavior() {
                 ),
                 retry_after: advice,
             }));
+            let delay = error.retry_delay(/*retry_count*/ 1);
             assert_eq!(
-                (
-                    error.to_codex_protocol_error(),
-                    error.retry_after(),
-                    error.retry_delay(/*retry_count*/ 1)
-                ),
-                (
-                    expected.clone(),
-                    advice,
-                    advice.map(|_| Duration::from_secs(3))
-                )
+                (error.to_codex_protocol_error(), error.retry_after()),
+                (expected.clone(), advice)
             );
+            match advice {
+                Some(_) => assert_eq!(delay, Some(Duration::from_secs(3))),
+                None => assert!(delay.is_some(), "{code} should retry with local backoff"),
+            }
         }
     }
 }
@@ -172,7 +169,7 @@ fn map_http_error_classifies_provider_codes() {
             503,
             "server_is_overloaded",
             CodexErrorInfo::ServerOverloaded,
-            false,
+            true,
         ),
         (503, "slow_down", CodexErrorInfo::RateLimitExceeded, true),
         (

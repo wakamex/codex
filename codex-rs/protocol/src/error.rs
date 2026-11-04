@@ -458,10 +458,10 @@ impl CodexErr {
             | CodexErrorDetails::CyberPolicy { .. }
             | CodexErrorDetails::BioPolicy { .. }
             | CodexErrorDetails::MisalignmentPolicyViolation { .. } => None,
+            CodexErrorDetails::RetryLimit(_) => self.server_retry_delay(),
             CodexErrorDetails::ServerOverloaded
             | CodexErrorDetails::PolicyCapacityUnavailable
-            | CodexErrorDetails::RetryLimit(_) => self.server_retry_delay(),
-            CodexErrorDetails::Stream(..)
+            | CodexErrorDetails::Stream(..)
             | CodexErrorDetails::ContentFilter
             | CodexErrorDetails::RateLimitExceeded(_)
             | CodexErrorDetails::Timeout

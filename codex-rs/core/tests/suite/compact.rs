@@ -3496,17 +3496,21 @@ async fn pre_sampling_compact_advised_errors_fall_back_then_retry_on_selected_mo
     assert_eq!(actual_models, expected_models);
 }
 
-/// Manual compaction keeps the configured retry limit even when the server supplies advice.
-#[test_case::test_case(0; "no_retries")]
-#[test_case::test_case(2; "two_retries")]
+/// Manual compaction keeps the configured retry limit with and without server advice.
+#[test_case::test_case(0, false; "no_retries_without_advice")]
+#[test_case::test_case(2, false; "two_retries_without_advice")]
+#[test_case::test_case(0, true; "no_retries_with_advice")]
+#[test_case::test_case(2, true; "two_retries_with_advice")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn manual_remote_compact_advice_respects_retry_limit(max_retries: u64) {
+async fn manual_remote_compact_advice_respects_retry_limit(max_retries: u64, advice: bool) {
     skip_if_no_network!();
 
     let server = start_mock_server().await;
-    let overload = wiremock::ResponseTemplate::new(/*s*/ 503)
-        .insert_header("Retry-After", "0")
+    let mut overload = wiremock::ResponseTemplate::new(/*s*/ 503)
         .set_body_json(json!({ "error": { "code": "server_is_overloaded" } }));
+    if advice {
+        overload = overload.insert_header("Retry-After", "0");
+    }
     let request_log =
         mount_response_sequence(&server, vec![overload; (max_retries + 1) as usize]).await;
     let mut model_provider = openai_model_provider(&server);
