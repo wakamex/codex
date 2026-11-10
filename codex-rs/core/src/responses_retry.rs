@@ -17,11 +17,18 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::WarningEvent;
+use rand::Rng;
 use tokio::time::Instant;
 use tracing::warn;
 
 const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
+/// Minimum waits before capacity retries without server advice; later retries reuse the last.
+const CAPACITY_RETRY_BASE_DELAYS: [Duration; 3] = [
+    Duration::from_secs(30),
+    Duration::from_secs(120),
+    Duration::from_secs(300),
+];
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ResponsesStreamRequest {
@@ -33,6 +40,7 @@ pub(crate) struct ResponsesStreamRetryState {
     retries: u64,
     connection_retries: u64,
     connection_retry_delay: Duration,
+    capacity_retries: u64,
 }
 
 impl Default for ResponsesStreamRetryState {
@@ -41,6 +49,7 @@ impl Default for ResponsesStreamRetryState {
             retries: 0,
             connection_retries: 0,
             connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
+            capacity_retries: 0,
         }
     }
 }
@@ -85,6 +94,46 @@ pub(crate) async fn handle_response_stream_error(
         ResponsesStreamRequest::Sampling => RetryOperation::Sampling,
         ResponsesStreamRequest::RemoteCompactionV2 => RetryOperation::RemoteCompactionV2,
     };
+    // A capacity error without server advice may outlast the stream retry budget, so
+    // user-facing turns first wait on their own longer schedule. Once that budget is spent,
+    // or when it is zero, the error falls through to the ordinary stream retries. Internal
+    // sessions such as Guardian keep only the short stream retries to stay within their
+    // deadlines.
+    let capacity_limit = turn_context.config.capacity_retries.limit();
+    if is_unadvised_capacity_error(&err)
+        && !turn_context.session_source.is_internal()
+        && capacity_limit.is_none_or(|limit| retry_state.capacity_retries < limit)
+    {
+        let limit = capacity_limit;
+        retry_state.capacity_retries = retry_state.capacity_retries.saturating_add(1);
+        let attempt = retry_state.capacity_retries;
+        let delay = capacity_retry_delay(attempt, rand::rng().random_range(0.0..1.0));
+        let progress = match limit {
+            Some(limit) => format!("{attempt}/{limit}"),
+            None => attempt.to_string(),
+        };
+        warn!(
+            turn_id = %turn_context.sub_id,
+            attempt,
+            ?limit,
+            ?delay,
+            error = %err,
+            "model at capacity without retry advice; waiting to retry"
+        );
+        sess.notify_stream_error(
+            turn_context,
+            format!(
+                "Model at capacity; retrying in {} ({progress})",
+                format_capacity_delay(delay)
+            ),
+            err,
+        )
+        .await;
+        codex_client::record_retry!(attempt, delay, operation);
+        tokio::time::sleep(delay).await;
+        return Ok(());
+    }
+
     let retry_count = retry_state.retries.saturating_add(1);
     let Some(delay) = err.retry_delay(retry_count) else {
         return Err(err);
@@ -118,7 +167,10 @@ pub(crate) async fn handle_response_stream_error(
         return Ok(());
     }
 
+    // Switching transport cannot relieve model capacity, so capacity errors without advice
+    // only use the remaining stream retries.
     if retry_state.retries >= max_retries
+        && !is_unadvised_capacity_error(&err)
         && client_session.try_switch_fallback_transport(
             &turn_context.session_telemetry,
             turn_context.model_info(),
@@ -174,6 +226,32 @@ pub(crate) async fn handle_response_stream_error(
             retry_at: retry_after.map(RetryAfter::deadline),
         });
     Err(err)
+}
+
+fn is_unadvised_capacity_error(err: &CodexErr) -> bool {
+    matches!(
+        err.details(),
+        CodexErrorDetails::ServerOverloaded | CodexErrorDetails::PolicyCapacityUnavailable
+    ) && err.retry_after().is_none()
+}
+
+/// Returns the base delay for `attempt` (1-based) plus `jitter` (0.0 to 1.0) of it, so
+/// clients never retry before the base schedule or all at the same instant.
+fn capacity_retry_delay(attempt: u64, jitter: f64) -> Duration {
+    let index = usize::try_from(attempt.saturating_sub(1))
+        .unwrap_or(usize::MAX)
+        .min(CAPACITY_RETRY_BASE_DELAYS.len() - 1);
+    let base = CAPACITY_RETRY_BASE_DELAYS[index];
+    base + base.mul_f64(jitter.clamp(0.0, 1.0))
+}
+
+fn format_capacity_delay(delay: Duration) -> String {
+    let seconds = delay.as_secs();
+    if seconds >= 60 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{seconds}s")
+    }
 }
 
 fn log_retry(

@@ -348,6 +348,10 @@ pub struct ConfigToml {
     /// Default: `300000` (5 minutes).
     pub background_terminal_max_timeout: Option<u64>,
 
+    /// Turn retries after the model reports it is at capacity without retry advice.
+    /// A count, or `"unlimited"` for unattended runs. Default: `3`.
+    pub capacity_retries: Option<CapacityRetries>,
+
     /// Seconds a thread must have no subscribers and no activity before app-server
     /// unloads it. Defaults to 60 (1 minute); zero unloads immediately.
     /// Resolved when each thread is loaded; request config overrides apply per thread.
@@ -626,6 +630,32 @@ impl ProjectConfig {
 
     pub fn is_untrusted(&self) -> bool {
         matches!(self.trust_level, Some(TrustLevel::Untrusted))
+    }
+}
+
+/// Retry limit for capacity errors that arrive without server retry advice.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
+#[serde(untagged)]
+pub enum CapacityRetries {
+    Limited(u64),
+    Unlimited(UnlimitedCapacityRetries),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UnlimitedCapacityRetries {
+    Unlimited,
+}
+
+impl CapacityRetries {
+    pub const DEFAULT: Self = Self::Limited(3);
+
+    /// Returns the retry limit, or `None` when retries are unlimited.
+    pub fn limit(self) -> Option<u64> {
+        match self {
+            Self::Limited(limit) => Some(limit),
+            Self::Unlimited(_) => None,
+        }
     }
 }
 
@@ -1057,6 +1087,25 @@ mod tests {
 
     const WORKSPACE_ID_A: &str = "123e4567-e89b-42d3-a456-426614174000";
     const WORKSPACE_ID_B: &str = "123e4567-e89b-42d3-a456-426614174001";
+
+    #[test]
+    fn capacity_retries_accept_a_count_or_unlimited() {
+        let parse = |toml: &str| {
+            toml::from_str::<ConfigToml>(toml)
+                .expect("config should parse")
+                .capacity_retries
+                .map(CapacityRetries::limit)
+        };
+        assert_eq!(
+            [
+                parse("capacity_retries = 5"),
+                parse("capacity_retries = \"unlimited\""),
+                parse(""),
+            ],
+            [Some(Some(5)), Some(None), None]
+        );
+        assert!(toml::from_str::<ConfigToml>("capacity_retries = \"forever\"").is_err());
+    }
 
     #[test]
     fn sandbox_mode_uses_executor_platform_and_sandbox_level() {

@@ -3521,6 +3521,8 @@ async fn manual_remote_compact_advice_respects_retry_limit(max_retries: u64, adv
         .with_model("gpt-5.4")
         .with_config(move |config| {
             config.model_provider = model_provider;
+            // This test measures the ordinary stream retries, not the capacity schedule.
+            config.capacity_retries = codex_core::config::CapacityRetries::Limited(0);
             set_test_compact_prompt(config);
         })
         .build_with_auto_env(&server)

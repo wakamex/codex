@@ -393,6 +393,7 @@ async fn new_config(
         model_tools_enabled: true,
         code_mode: Default::default(),
         background_terminal_max_timeout: 300_000,
+        capacity_retries: codex_core_api::CapacityRetries::DEFAULT,
         thread_unload_delay: std::time::Duration::from_secs(/*secs*/ 60),
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),

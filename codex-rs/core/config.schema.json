@@ -656,6 +656,19 @@
       },
       "type": "object"
     },
+    "CapacityRetries": {
+      "anyOf": [
+        {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        {
+          "$ref": "#/definitions/UnlimitedCapacityRetries"
+        }
+      ],
+      "description": "Retry limit for capacity errors that arrive without server retry advice."
+    },
     "CircuitBreakAction": {
       "oneOf": [
         {
@@ -7463,6 +7476,12 @@
       },
       "type": "object"
     },
+    "UnlimitedCapacityRetries": {
+      "enum": [
+        "unlimited"
+      ],
+      "type": "string"
+    },
     "UpdatePlanToolConfig": {
       "additionalProperties": false,
       "properties": {
@@ -7681,6 +7700,14 @@
     },
     "browser_use": {
       "$ref": "#/definitions/BrowserUseConfigToml"
+    },
+    "capacity_retries": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/CapacityRetries"
+        }
+      ],
+      "description": "Turn retries after the model reports it is at capacity without retry advice. A count, or `\"unlimited\"` for unattended runs. Default: `3`."
     },
     "chatgpt_base_url": {
       "description": "Base URL for requests to ChatGPT (as opposed to the OpenAI API).",

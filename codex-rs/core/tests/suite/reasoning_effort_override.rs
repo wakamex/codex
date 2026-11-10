@@ -586,6 +586,8 @@ async fn reasoning_effort_override_capacity_retry_keeps_latest_adjacent_update()
         .with_config(|config| {
             config.model_provider.supports_websockets = false;
             config.model_provider.request_max_retries = Some(0);
+            // This test measures the ordinary stream retries, not the capacity schedule.
+            config.capacity_retries = codex_core::config::CapacityRetries::Limited(0);
             config.model_provider.stream_max_retries = Some(0);
         })
         .build_with_auto_env(&server)

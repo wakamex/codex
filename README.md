@@ -53,6 +53,18 @@ codex exec resume --last --no-tools "Continue without tools"
 
 Threads can configure a same-turn failure handler through the `set_turn_failure_handler`, `get_turn_failure_handler`, and `clear_turn_failure_handler` tools so terminal turn failures automatically continue the turn with custom recovery instructions up to the configured continuation limit. The `turn_failure_handlers` feature, on by default, controls the tools and continuations; temporary structured requests such as recaps turn it off.
 
+### Model Capacity Retries
+
+When the selected model reports it is at capacity (`server_is_overloaded` or `policy_capacity_unavailable`) without a `Retry-After` header, the turn waits and retries instead of ending. Waits are at least 30 seconds, 2 minutes, and 5 minutes, then 5 minutes for every later retry, each with up to 100% added random delay so clients do not retry in step. The status line shows the wait and progress, and the turn can be interrupted while it waits. These retries have their own budget, separate from stream retries, and server retry advice still sets the wait when present. Internal sessions such as Guardian keep the short stream retries.
+
+Set the limit in `config.toml`; the default is 3:
+
+```toml
+capacity_retries = 3            # or "unlimited" for unattended runs
+```
+
+When these retries are spent, or when `capacity_retries = 0`, the error falls back to the ordinary stream retries before the turn ends, as without this setting. A disabled model reports the same error, so it fails only after both.
+
 ### Reconnect Command Preservation
 
 When disconnecting from a session, the exit summary preserves the session's active CLI flags and remote connection settings in the printed `codex resume` command so reconnecting restores the same configuration.

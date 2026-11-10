@@ -311,6 +311,8 @@ async fn review_overload_preserves_lifecycle_order() {
     .await;
     let codex = new_conversation_for_server(&server, Arc::new(TempDir::new().unwrap()), |config| {
         config.model_provider.request_max_retries = Some(0);
+        // This test measures the ordinary stream retries, not the capacity schedule.
+        config.capacity_retries = codex_core::config::CapacityRetries::Limited(0);
         config.model_provider.stream_max_retries = Some(0);
     })
     .await;

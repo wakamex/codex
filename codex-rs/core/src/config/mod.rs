@@ -197,6 +197,7 @@ pub use codex_config::Constrained;
 pub use codex_config::ConstraintError;
 pub use codex_config::ConstraintResult;
 pub use codex_config::LoaderOverrides;
+pub use codex_config::config_toml::CapacityRetries;
 pub use codex_network_proxy::NetworkProxyAuditMetadata;
 use codex_sandboxing::compatibility_sandbox_policy_for_permission_profile;
 pub use codex_sandboxing::system_bwrap_warning;
@@ -1161,6 +1162,9 @@ pub struct Config {
     /// Maximum poll window for background terminal output (`write_stdin`), in milliseconds.
     /// Default: `300000` (5 minutes).
     pub background_terminal_max_timeout: u64,
+
+    /// Turn retries after the model reports it is at capacity without retry advice.
+    pub capacity_retries: CapacityRetries,
 
     /// Idle timeout for unsubscribed app-server threads.
     pub thread_unload_delay: Duration,
@@ -4196,6 +4200,9 @@ impl Config {
             .background_terminal_max_timeout
             .unwrap_or(DEFAULT_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS)
             .max(MIN_EMPTY_YIELD_TIME_MS);
+        let capacity_retries = cfg
+            .capacity_retries
+            .unwrap_or(CapacityRetries::DEFAULT);
         let thread_unload_delay =
             Duration::from_secs(cfg.thread_unload_delay_secs.unwrap_or(/*default*/ 60));
         if std::time::Instant::now()
@@ -4801,6 +4808,7 @@ impl Config {
             model_tools_enabled: model_tools_enabled.unwrap_or(true),
             code_mode,
             background_terminal_max_timeout,
+            capacity_retries,
             thread_unload_delay,
             ghost_snapshot,
             multi_agent_v2,

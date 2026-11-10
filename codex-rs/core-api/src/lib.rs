@@ -70,6 +70,7 @@ pub use codex_core::WithTurnExtensionData;
 pub use codex_core::build_models_manager;
 pub use codex_core::build_runtime_auth_manager;
 pub use codex_core::build_startup_models;
+pub use codex_core::config::CapacityRetries;
 pub use codex_core::config::Config;
 pub use codex_core::config::Constrained;
 pub use codex_core::config::ExtraConfig;
