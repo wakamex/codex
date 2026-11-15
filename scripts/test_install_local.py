@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -81,6 +83,61 @@ class InstallPackageTest(unittest.TestCase):
                     ["ln", "-sfn"],
                 ],
             )
+
+
+class TargetDirTest(unittest.TestCase):
+    def test_reads_cargo_target_directory_from_metadata(self) -> None:
+        metadata = subprocess.CompletedProcess(
+            ["cargo", "metadata"],
+            0,
+            stdout=json.dumps({"target_directory": "/nvme/cargo-target/codex"}),
+        )
+        with patch.object(
+            INSTALL_LOCAL.subprocess, "run", return_value=metadata
+        ) as run:
+            target = INSTALL_LOCAL.target_dir(Path("/repo/codex-rs"))
+
+        self.assertEqual(target, Path("/nvme/cargo-target/codex"))
+        self.assertEqual(run.call_args.kwargs["cwd"], Path("/repo/codex-rs"))
+
+
+class WipeBuildCacheTest(unittest.TestCase):
+    def test_removes_a_cargo_target_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            target = Path(temporary_directory) / "target"
+            (target / "release").mkdir(parents=True)
+            (target / "CACHEDIR.TAG").write_text(
+                "Signature: 8a477f597d28d172789f06886806bc55\n"
+            )
+
+            INSTALL_LOCAL.wipe_build_cache(target)
+
+            self.assertEqual(
+                [entry.name for entry in target.iterdir()], ["CACHEDIR.TAG"]
+            )
+
+    def test_empties_the_directory_behind_a_symlinked_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            real = Path(temporary_directory) / "nvme-target"
+            (real / "release").mkdir(parents=True)
+            (real / "CACHEDIR.TAG").touch()
+            link = Path(temporary_directory) / "target"
+            link.symlink_to(real)
+
+            INSTALL_LOCAL.wipe_build_cache(link)
+
+            self.assertTrue(link.is_symlink())
+            self.assertEqual([entry.name for entry in real.iterdir()], ["CACHEDIR.TAG"])
+
+    def test_keeps_a_directory_without_the_cargo_cache_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            target = Path(temporary_directory) / "not-a-target"
+            target.mkdir()
+            (target / "keep.txt").touch()
+
+            INSTALL_LOCAL.wipe_build_cache(target)
+
+            self.assertTrue((target / "keep.txt").exists())
 
 
 class PruneLocalReleasesTest(unittest.TestCase):

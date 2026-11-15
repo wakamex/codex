@@ -79,7 +79,7 @@ The repository includes helpers for maintaining and building the fork:
 - `just set-local-version --dry-run` previews the version derived from the latest included upstream release, upstream commit, and fork commit
 - `just test-local` runs the test suite with verified V8 artifacts and an isolated `HOME` and `TMPDIR`
 - `just build-local` rejects dirty source trees, applies that version temporarily, downloads and verifies the matching V8 artifacts, builds the current CLI and code-mode host, and restores the version files
-- `just install-local` assembles the built binaries into a complete Codex package under `/usr/local/lib/codex`, updates the `/usr/local/bin/codex` symlink, repins an existing daemon to the new package, preserves one rollback copy, and prunes older local daemon packages
+- `just install-local` assembles the built binaries into a complete Codex package under `/usr/local/lib/codex`, updates the `/usr/local/bin/codex` symlink, repins an existing daemon to the new package, preserves one rollback copy, prunes older local daemon packages, and then empties Cargo's target directory unless `--keep-build-cache` is passed
 
 ### Rebase and resolve conflicts
 
@@ -142,6 +142,8 @@ just build-local
 codex-rs/target/release/codex --version
 just install-local
 ```
+
+A full build and test run can fill several hundred gigabytes of Cargo output, so `just install-local` empties the target directory once the package is installed and the daemon updated; it only empties a directory carrying Cargo's `CACHEDIR.TAG`, which it keeps. Pass `--keep-build-cache` to keep the output for a quicker rebuild. To keep build output on another drive, make `codex-rs/target` a symlink to a directory there and list it in `.git/info/exclude`; the scripts ask Cargo for the target directory, so `CARGO_TARGET_DIR` also works.
 
 Finally, update the fork remote:
 

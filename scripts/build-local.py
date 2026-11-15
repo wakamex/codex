@@ -2,6 +2,7 @@
 """Build the local Codex CLI and its code-mode host sidecar."""
 
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
 import shlex
@@ -49,11 +50,15 @@ def rust_host_target() -> str:
 
 
 def target_dir(codex_rs: Path) -> Path:
-    configured = os.environ.get("CARGO_TARGET_DIR")
-    if configured is None:
-        return codex_rs / "target"
-    path = Path(configured)
-    return path if path.is_absolute() else codex_rs / path
+    """Return Cargo's target directory, honoring CARGO_TARGET_DIR and Cargo config."""
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        cwd=codex_rs,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    return Path(json.loads(result.stdout)["target_directory"])
 
 
 def ensure_clean_worktree(repo: Path) -> None:

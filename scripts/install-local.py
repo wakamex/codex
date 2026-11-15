@@ -2,9 +2,11 @@
 """Install locally built Codex binaries as a package with a rollback copy."""
 
 import argparse
+import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,11 +26,15 @@ def repo_root() -> Path:
 
 
 def target_dir(codex_rs: Path) -> Path:
-    configured = os.environ.get("CARGO_TARGET_DIR")
-    if configured is None:
-        return codex_rs / "target"
-    path = Path(configured)
-    return path if path.is_absolute() else codex_rs / path
+    """Return Cargo's target directory, honoring CARGO_TARGET_DIR and Cargo config."""
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        cwd=codex_rs,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    return Path(json.loads(result.stdout)["target_directory"])
 
 
 def rust_host_target() -> str:
@@ -143,6 +149,29 @@ def prune_local_releases(daemon_root: Path) -> None:
             run(["rm", "-rf", release])
 
 
+def wipe_build_cache(cargo_target: Path) -> None:
+    """Empty Cargo's target directory after its release binaries are installed.
+
+    The directory itself stays, so a symlinked target directory keeps pointing at its
+    drive. Cargo writes CACHEDIR.TAG into every target directory it creates, so
+    requiring it keeps a misconfigured path from deleting anything else.
+    """
+    target = cargo_target.resolve()
+    if not (target / "CACHEDIR.TAG").is_file():
+        print(f"Not wiping {cargo_target}: no Cargo CACHEDIR.TAG found.")
+        return
+    for entry in target.iterdir():
+        # Keep the tag: Cargo writes it only when it creates the directory, and the
+        # next wipe needs it.
+        if entry.name == "CACHEDIR.TAG":
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    print(f"Wiped build cache {cargo_target}.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Install locally built Codex release binaries as a package."
@@ -158,6 +187,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("/usr/local/lib/codex"),
         help="package installation directory (default: /usr/local/lib/codex)",
+    )
+    parser.add_argument(
+        "--keep-build-cache",
+        action="store_true",
+        help="keep Cargo's target directory instead of wiping it after a successful install",
     )
     return parser.parse_args()
 
@@ -194,6 +228,8 @@ def main() -> int:
         ]
         for command in restore:
             print(shlex.join(str(argument) for argument in command))
+    if not args.keep_build_cache:
+        wipe_build_cache(cargo_target)
     return 0
 
 
